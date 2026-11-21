@@ -1,0 +1,2347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI·머신러닝 16대 핵심 알고리즘 2D/3D 인터랙티브 강의 보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+  :root {
+    --bg: #FFFFFF;
+    --surface: #F8FAFC;
+    --border: #CBD5E1;
+    --border-light: #E2E8F0;
+    --text: #0F172A;
+    --muted: #475569;
+    --blue: #2563EB;
+    --red: #DC2626;
+    --orange: #EA580C;
+    --green: #16A34A;
+    --amber: #D97706;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.4;
+    overflow-x: hidden;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-badge {
+    background: var(--text); color: #fff; font-weight: 800; font-size: 12px;
+    padding: 4px 8px; border-radius: 6px; letter-spacing: 0.04em;
+  }
+  .brand h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .btn:hover { background: var(--surface); border-color: #94A3B8; }
+  .btn.active { background: var(--text); color: #fff; border-color: var(--text); }
+  .btn.primary { background: var(--green); color: #fff; border-color: var(--green); }
+  .btn.primary:hover { background: #15803D; }
+  .btn.scenario { background: #EFF6FF; color: var(--blue); border-color: #BFDBFE; font-size: 12px; }
+  .btn.scenario:hover { background: #DBEAFE; }
+
+  /* Grid View */
+  #grid-view { padding: 18px 20px 36px; max-width: 1680px; margin: 0 auto; }
+  .filter-bar {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 16px;
+  }
+  .filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1280px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 580px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 8px;
+    transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
+  }
+  .card:hover {
+    transform: translateY(-2px); border-color: var(--blue);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .card-num {
+    font-size: 11px; font-weight: 800; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border-light);
+    padding: 2px 6px; border-radius: 5px;
+  }
+  .card-cat { font-size: 11px; font-weight: 700; color: var(--blue); }
+  .card-title { font-size: 15px; font-weight: 800; color: var(--text); }
+  .card-formula {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: 8px; padding: 6px 8px; font-size: 12px; text-align: center;
+    min-height: 36px; display: flex; align-items: center; justify-content: center;
+    overflow-x: auto;
+  }
+  .card-canvas-wrap {
+    width: 100%; height: 148px; background: var(--surface);
+    border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden;
+    position: relative;
+  }
+  .card-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+  .card-desc { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+  /* ── Motion rule 1: card stagger (below 12px fade-in, 0.25s ease-out, 0.03s/card, no repeat) ── */
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card.stagger {
+    animation: cardIn 0.25s ease-out both;
+    animation-delay: var(--d, 0s);
+    animation-iteration-count: 1;
+  }
+  /* ── Motion rule 2: detail view switch (0.28s ease-out) ── */
+  @keyframes detailIn {
+    from { opacity: 0; transform: scale(0.985); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  #detail-view.animate-in { animation: detailIn 0.28s ease-out both; animation-iteration-count: 1; }
+
+  /* Detail View */
+  #detail-view {
+    display: none; height: calc(100vh - 59px);
+    grid-template-columns: 68% 32%;
+  }
+  @media (max-width: 1024px) {
+    #detail-view { grid-template-columns: 1fr; height: auto; }
+  }
+  .viewport-col {
+    position: relative; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 520px;
+  }
+  .viewport-top {
+    padding: 10px 14px; background: #fff; border-bottom: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .viewport-top .group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .viewport-stage {
+    flex: 1; position: relative; overflow: hidden; min-height: 320px;
+  }
+  .stage { position: absolute; inset: 0; display: flex; }
+  .three-pane { flex: 1; position: relative; height: 100%; }
+  .three-pane.split-right { border-left: 2px dashed var(--border); display: none; }
+  .canvas-pane { flex: 1; position: relative; height: 100%; overflow: hidden; }
+  .canvas-pane.split-right { border-left: 2px dashed var(--border); display: none; }
+  .canvas-pane canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  .pane-badge {
+    position: absolute; top: 10px; left: 10px; z-index: 10;
+    padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800;
+    background: rgba(255,255,255,0.92); border: 1px solid var(--border);
+    pointer-events: none;
+  }
+  .pane-badge.manual { color: var(--orange); border-color: #FDBA74; }
+  .pane-badge.optimal { color: var(--green); border-color: #86EFAC; }
+  .legend-bar {
+    position: absolute; bottom: 10px; left: 10px; z-index: 10;
+    background: rgba(255,255,255,0.92); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    max-width: calc(100% - 20px);
+  }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+  .dash { display: inline-block; width: 18px; height: 0; border-top: 2px dashed var(--orange); vertical-align: middle; margin-right: 5px; }
+  .solid { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--green); vertical-align: middle; margin-right: 5px; }
+
+  .view-toggle {
+    display: inline-flex; align-items: center; gap: 2px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 2px;
+  }
+  .view-toggle button {
+    border: none; background: transparent; color: var(--muted);
+    font-size: 12px; font-weight: 800; padding: 5px 11px; border-radius: 7px;
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+  }
+  .view-toggle button:hover { color: var(--text); }
+  .view-toggle button.active { background: var(--text); color: #fff; }
+
+  .canvas-tools {
+    position: absolute; top: 10px; right: 10px; z-index: 12;
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.94); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 8px;
+  }
+  .canvas-tools .btn { padding: 4px 10px; font-size: 11px; border-radius: 999px; }
+  .canvas-tools .btn.addA.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .canvas-tools .btn.addB.active { background: var(--red); color: #fff; border-color: var(--red); }
+  .canvas-tools .tiny { font-size: 11px; color: var(--muted); font-weight: 700; }
+
+  .control-col {
+    background: #fff; padding: 14px 16px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .panel-box {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: 10px; padding: 12px;
+  }
+  .panel-title {
+    font-size: 12px; font-weight: 800; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .formula-live {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; text-align: center; font-size: 14px; overflow-x: auto;
+  }
+  .slider-row { margin-bottom: 10px; }
+  .slider-row:last-child { margin-bottom: 0; }
+  .slider-label {
+    display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 4px;
+  }
+  .slider-val { color: var(--orange); font-weight: 800; }
+  input[type="range"] { width: 100%; accent-color: var(--orange); cursor: pointer; }
+  .mode-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .mode-tabs .btn { padding: 6px 4px; font-size: 11px; text-align: center; }
+
+  table.score-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; background: #fff;
+    border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light);
+    font-variant-numeric: tabular-nums;
+  }
+  table.score-table th, table.score-table td {
+    padding: 7px 8px; border-bottom: 1px solid var(--border-light); text-align: right;
+  }
+  table.score-table th:first-child, table.score-table td:first-child { text-align: left; font-weight: 700; }
+  table.score-table th { background: #F1F5F9; color: var(--muted); font-weight: 800; }
+  .val-manual { color: var(--orange); font-weight: 800; }
+  .val-opt { color: var(--green); font-weight: 800; }
+
+  .aux-canvas-wrap {
+    width: 100%; height: 150px; background: #fff;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .aux-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+  .hint { font-size: 11px; color: var(--muted); }
+  .hint b { color: var(--text); }
+
+  /* ── Motion rule 4: prefers-reduced-motion ── */
+  @media (prefers-reduced-motion: reduce) {
+    .card.stagger, #detail-view.animate-in { animation: none !important; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-delay: 0ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="brand-badge">2D/3D AI LAB</span>
+    <h1>AI · 머신러닝 16대 핵심 알고리즘 2D/3D 인터랙티브 강의 보드</h1>
+  </div>
+  <div class="toolbar">
+    <button class="btn scenario" onclick="runScenario('svm')">시연① SVM 커널 트릭</button>
+    <button class="btn scenario" onclick="runScenario('tree')">시연② 트리 과적합 vs 최적</button>
+    <button class="btn scenario" onclick="runScenario('gd')">시연③ 경사하강법 학습률</button>
+  </div>
+</header>
+
+<main id="grid-view">
+  <div class="filter-bar">
+    <div class="filter-group" id="cat-filters">
+      <button class="btn active" data-cat="all">전체 16개</button>
+      <button class="btn" data-cat="linear">지도·회귀 (4)</button>
+      <button class="btn" data-cat="tree">거리·경계·트리 (4)</button>
+      <button class="btn" data-cat="unsupervised">부스팅·비지도 (4)</button>
+      <button class="btn" data-cat="deep">최적화·딥러닝 (4)</button>
+    </div>
+    <div class="hint">카드를 클릭하면 <b>[3D 입체] ↔ [2D 평면]</b> 전환 · 수동 vs ✨최적 비교 화면으로 전환됩니다.</div>
+  </div>
+  <div class="grid" id="model-grid"></div>
+</main>
+
+<section id="detail-view">
+  <div class="viewport-col">
+    <div class="viewport-top">
+      <div class="group">
+        <button class="btn" onclick="closeDetail()">← 전체 보기</button>
+        <strong id="detail-title" style="font-size:15px;"></strong>
+        <div class="view-toggle" id="view-toggle">
+          <button class="active" data-view="3d" onclick="setView3D(true)">3D 입체</button>
+          <button data-view="2d" onclick="setView3D(false)">2D 평면</button>
+        </div>
+      </div>
+      <div class="group">
+        <button class="btn" onclick="setDataset('linear')">선형</button>
+        <button class="btn" onclick="setDataset('circle')">원형/도넛</button>
+        <button class="btn" onclick="setDataset('moon')">초승달</button>
+        <button class="btn" onclick="setDataset('outlier')">이상치</button>
+        <button class="btn" onclick="resetCamera()">시점 초기화</button>
+        <button class="btn" onclick="resetData()">↺ 데이터 초기화</button>
+      </div>
+    </div>
+    <div class="viewport-stage">
+      <div class="stage" id="stage-3d">
+        <div class="three-pane" id="pane-left">
+          <div class="pane-badge manual" id="badge-left">수동(주황) + 최적(초록)</div>
+        </div>
+        <div class="three-pane split-right" id="pane-right">
+          <div class="pane-badge optimal">✨ 최적 모델 (Auto-Fit)</div>
+        </div>
+        <div class="legend-bar">
+          <span><i class="dot" style="background:var(--blue)"></i>클래스 A / 데이터</span>
+          <span><i class="dot" style="background:var(--red)"></i>클래스 B / 잔차</span>
+          <span><i class="dot" style="background:var(--orange)"></i>수동 모델(와이어)</span>
+          <span><i class="dot" style="background:var(--green)"></i>최적 모델(솔리드)</span>
+          <span class="hint">드래그: 360° 회전 · 스크롤: 줌</span>
+        </div>
+      </div>
+      <div class="stage" id="stage-2d" style="display:none;">
+        <div class="canvas-pane" id="pane2d-left">
+          <canvas id="c2d-left"></canvas>
+          <div class="pane-badge manual" id="badge-2d-left">수동(주황) + 최적(초록)</div>
+        </div>
+        <div class="canvas-pane split-right" id="pane2d-right">
+          <canvas id="c2d-right"></canvas>
+          <div class="pane-badge optimal">✨ 최적 모델 (Auto-Fit)</div>
+        </div>
+        <div class="canvas-tools">
+          <span class="tiny" id="add-hint">점 추가</span>
+          <button class="btn addA" id="btn-add-a" onclick="toggleAddMode('A')">● A</button>
+          <button class="btn addB" id="btn-add-b" onclick="toggleAddMode('B')">● B</button>
+        </div>
+        <div class="legend-bar">
+          <span><i class="dot" style="background:var(--blue)"></i>클래스 A</span>
+          <span><i class="dot" style="background:var(--red)"></i>클래스 B</span>
+          <span><i class="dash"></i>수동 모델</span>
+          <span><i class="solid"></i>최적 모델</span>
+          <span class="hint" id="legend-2d-hint">A/B 선택 후 캔버스 클릭 = 점 추가</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="control-col">
+    <div class="panel-box">
+      <div class="panel-title"><span>핵심 수식 (실시간 연동)</span><span id="detail-cat" style="color:var(--blue)"></span></div>
+      <div class="formula-live" id="detail-formula"></div>
+      <div id="detail-summary" style="font-size:12px;color:var(--muted);margin-top:8px;"></div>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-title">
+        <span>파라미터 제어 (수동 vs 최적)</span>
+        <button class="btn primary" id="btn-autofit" onclick="runAutoFit()">✨ 최적 찾기 (Auto-Fit)</button>
+      </div>
+      <div id="sliders-container"></div>
+      <div style="margin-top:10px;">
+        <div class="panel-title" style="margin-bottom:6px;"><span>비교 보기 모드</span></div>
+        <div class="mode-tabs" id="view-mode-tabs">
+          <button class="btn active" data-mode="overlay">겹쳐 보기</button>
+          <button class="btn" data-mode="split">좌우 분할</button>
+          <button class="btn" data-mode="manual">수동만</button>
+          <button class="btn" data-mode="optimal">최적만</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-title"><span>실시간 성능 비교 스코어보드</span></div>
+      <table class="score-table tabular">
+        <thead>
+          <tr><th>지표 / 파라미터</th><th style="color:var(--orange)">수동 (Manual)</th><th style="color:var(--green)">✨ 최적 (Optimal)</th></tr>
+        </thead>
+        <tbody id="score-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel-box">
+      <div class="panel-title"><span id="aux-title">2D 보조 분석 차트</span></div>
+      <div class="aux-canvas-wrap"><canvas id="aux-canvas"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<script>
+// ===================== 1. 16 MODELS METADATA =====================
+const MODELS = [
+  { id:'linreg', num:1, cat:'linear', catName:'지도·회귀', name:'Linear Regression',
+    tex:'f(x)=\\sum w_i x_i + b', summary:'3D 공간에서 데이터 점들과의 수직 잔차 제곱합이 최소가 되는 회귀 평면을 찾습니다.',
+    params:[{key:'w1',label:'기울기 w₁',min:-2,max:2,step:0.05,val:0.2},{key:'w2',label:'기울기 w₂',min:-2,max:2,step:0.05,val:-0.3}] },
+  { id:'ridge', num:2, cat:'linear', catName:'지도·회귀', name:'Ridge / Lasso (L1·L2)',
+    tex:'\\min \\|y-Xw\\|^2 + \\lambda\\|w\\|_p', summary:'L1(정팔면체)과 L2(구) 제약 영역으로 가중치 크기를 규제해 과적합을 방지합니다.',
+    params:[{key:'lam',label:'규제 강도 λ',min:0,max:4,step:0.1,val:2.2},{key:'norm',label:'규제 유형 (1:L1, 2:L2)',min:1,max:2,step:1,val:1}] },
+  { id:'logreg', num:3, cat:'linear', catName:'지도·회귀', name:'Logistic Regression',
+    tex:'P(y=1|x)=\\frac{1}{1+e^{-(w^Tx+b)}}', summary:'선형 결합을 S자 시그모이드 3D 곡면으로 변환하고 확률 0.5 평면으로 분류합니다.',
+    params:[{key:'slope',label:'기울기 강도 w',min:0.3,max:5,step:0.1,val:0.8},{key:'bias',label:'절편 b',min:-2,max:2,step:0.1,val:0.8}] },
+  { id:'nb', num:4, cat:'linear', catName:'지도·회귀', name:'Naive Bayes',
+    tex:'P(c|x)\\propto P(c)\\prod P(x_i|c)', summary:'각 클래스의 가우시안 확률 밀도 봉우리(3D 종형 곡면)를 비교해 사후 확률을 계산합니다.',
+    params:[{key:'varScale',label:'분산 스케일 σ',min:0.3,max:2.5,step:0.05,val:1.8},{key:'prior',label:'사전확률 P(A)',min:0.1,max:0.9,step:0.05,val:0.75}] },
+  { id:'knn', num:5, cat:'tree', catName:'거리·경계·트리', name:'K-Nearest Neighbors',
+    tex:'D(x_1,x_2)=\\sqrt{\\sum (x_{1i}-x_{2i})^2}', summary:'테스트 점 주변 가장 가까운 k개 이웃을 3D 거리 구로 탐색해 다수결로 분류합니다.',
+    params:[{key:'k',label:'이웃 수 k',min:1,max:15,step:2,val:1},{key:'radiusBias',label:'탐색 중심 이동',min:-1.5,max:1.5,step:0.1,val:0.0}] },
+  { id:'svm', num:6, cat:'tree', catName:'거리·경계·트리', name:'SVM (RBF 커널 트릭)',
+    tex:'K(x_i,x_j)=\\exp(-\\|x_i-x_j\\|^2/2\\sigma^2)', summary:'2D에서 분리 불가능한 원형 데이터를 3D로 들어 올려 단 하나의 초평면으로 가릅니다.',
+    params:[{key:'sigma',label:'커널 폭 σ',min:0.3,max:3.0,step:0.05,val:2.4},{key:'zCut',label:'초평면 높이 z',min:0.1,max:0.9,step:0.02,val:0.25}] },
+  { id:'tree', num:7, cat:'tree', catName:'거리·경계·트리', name:'Decision Tree',
+    tex:'G=1-\\sum p_i^2', summary:'지니 불순도를 줄이는 축 평행 분할로 3D 계단형 예측 지형을 만듭니다.',
+    params:[{key:'depth',label:'최대 깊이 max_depth',min:1,max:5,step:1,val:5},{key:'minSplit',label:'최소 분할 샘플',min:2,max:12,step:1,val:2}] },
+  { id:'rf', num:8, cat:'tree', catName:'거리·경계·트리', name:'Random Forest',
+    tex:'f(x)=\\frac{1}{B}\\sum_{b=1}^B T_b(x)', summary:'여러 트리의 예측 지형을 평균 내어 각진 계단을 부드럽게 만들고 분산을 줄입니다.',
+    params:[{key:'trees',label:'트리 개수 B',min:1,max:20,step:1,val:1},{key:'depth',label:'트리 깊이',min:1,max:4,step:1,val:4}] },
+  { id:'gb', num:9, cat:'unsupervised', catName:'부스팅·비지도', name:'Gradient Boosting',
+    tex:'F_m(x)=F_{m-1}(x)+\\nu\\,h_m(x)', summary:'앞선 단계의 잔차(오차)를 다음 약한 트리가 순차적으로 메워 3D 지형을 정교화합니다.',
+    params:[{key:'stages',label:'부스팅 단계 m',min:1,max:15,step:1,val:2},{key:'lr',label:'학습률 ν',min:0.05,max:0.8,step:0.05,val:0.6}] },
+  { id:'kmeans', num:10, cat:'unsupervised', catName:'부스팅·비지도', name:'K-Means Clustering',
+    tex:'\\arg\\min \\sum \\|x_i-\\mu_k\\|^2', summary:'3D 공간에서 중심점(Centroid)을 반복 이동해 군집 내 분산 제곱합을 최소화합니다.',
+    params:[{key:'k',label:'군집 수 K',min:2,max:5,step:1,val:2},{key:'iter',label:'반복 횟수 step',min:1,max:10,step:1,val:1}] },
+  { id:'dbscan', num:11, cat:'unsupervised', catName:'부스팅·비지도', name:'DBSCAN (밀도 군집)',
+    tex:'|N_\\varepsilon(x)| \\ge \\text{minPts}', summary:'반경 ε 구체 안에 이웃이 충분한 점들을 연결해 비구형 군집을 찾고 이상치를 분리합니다.',
+    params:[{key:'eps',label:'밀도 반경 ε',min:0.3,max:2.2,step:0.05,val:0.45},{key:'minPts',label:'최소 이웃 minPts',min:2,max:8,step:1,val:4}] },
+  { id:'pca', num:12, cat:'unsupervised', catName:'부스팅·비지도', name:'PCA (주성분 분석)',
+    tex:'Av=\\lambda v,\\; z=v_1^T(x-\\bar{x})', summary:'3D 점 구름에서 분산이 가장 큰 직교 축(PC1·PC2·PC3)을 찾아 2D 평면으로 정사영합니다.',
+    params:[{key:'angle',label:'투영 축 회전(°)',min:-90,max:90,step:2,val:55},{key:'proj',label:'정사영 비율',min:0,max:1,step:0.05,val:0.5}] },
+  { id:'perceptron', num:13, cat:'deep', catName:'최적화·딥러닝', name:'Perceptron',
+    tex:'f(x)=\\text{sign}(\\sum w_i x_i + b)', summary:'오분류된 점에 따라 결정 평면의 법선 벡터를 한 단계씩 회전·이동시켜 수렴합니다.',
+    params:[{key:'steps',label:'학습 스텝',min:0,max:25,step:1,val:2},{key:'lr',label:'학습률 η',min:0.05,max:1.0,step:0.05,val:0.2}] },
+  { id:'gd', num:14, cat:'deep', catName:'최적화·딥러닝', name:'Gradient Descent',
+    tex:'\\theta_{t+1}=\\theta_t-\\alpha\\nabla J(\\theta_t)', summary:'3D 손실 곡면 위에서 기울기 반대 방향으로 구슬이 내려가며 최솟값을 탐색합니다.',
+    params:[{key:'lr',label:'학습률 α',min:0.02,max:0.95,step:0.02,val:0.86},{key:'steps',label:'반복 스텝',min:2,max:30,step:1,val:18}] },
+  { id:'mlp', num:15, cat:'deep', catName:'최적화·딥러닝', name:'Neural Networks (MLP)',
+    tex:'a^{(l)}=\\sigma(W^{(l)}a^{(l-1)}+b^{(l)})', summary:'은닉층 노드와 비선형 활성화 함수의 결합으로 복잡한 3D 결정 곡면을 형성합니다.',
+    params:[{key:'hidden',label:'은닉 노드 수',min:2,max:8,step:1,val:2},{key:'epochs',label:'학습 에폭',min:5,max:80,step:5,val:10}] },
+  { id:'attn', num:16, cat:'deep', catName:'최적화·딥러닝', name:'Self-Attention',
+    tex:'\\text{Attn}(Q,K,V)=\\text{softmax}(QK^T/\\sqrt{d_k})V', summary:'문장 토큰 간 Query-Key 유사도를 3D 입체 아크의 굵기와 높이로 시각화합니다.',
+    params:[{key:'temp',label:'온도 스케일 τ',min:0.2,max:3.0,step:0.1,val:2.4},{key:'focus',label:'기준 토큰(0~4)',min:0,max:4,step:1,val:1}] }
+];
+
+// ===================== 2. SEEDED DATA GENERATOR =====================
+function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}}
+let currentDatasetType = 'linear';
+let dataset = [];
+let addedPoints = [];
+let dataVersion = 0;
+
+function generateData(type, seed) {
+  if (seed === undefined) seed = 42;
+  const rng = mulberry32(seed);
+  const randn = function(){
+    let u=0,v=0; while(u===0)u=rng(); while(v===0)v=rng();
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  };
+  const pts = [];
+  for(let i=0;i<64;i++){
+    let x1, x2, y, cls;
+    if(type==='linear'){
+      x1 = (rng()-0.5)*4; x2 = (rng()-0.5)*4;
+      y = 0.75*x1 - 0.55*x2 + 0.25 + randn()*0.35;
+      cls = (x1 - 0.8*x2 + randn()*0.4 > 0) ? 1 : 0;
+    } else if(type==='circle'){
+      const r = i<32 ? (0.4 + rng()*0.7) : (1.55 + rng()*0.65);
+      const a = rng()*Math.PI*2;
+      x1 = Math.cos(a)*r; x2 = Math.sin(a)*r;
+      cls = i<32 ? 1 : 0;
+      y = cls ? 1.2 - 0.3*r + randn()*0.15 : -0.9 + 0.1*r + randn()*0.15;
+    } else if(type==='moon'){
+      const t = rng()*Math.PI;
+      if(i<32){ x1 = Math.cos(t)*1.6 - 0.5 + randn()*0.18; x2 = Math.sin(t)*1.4 - 0.2 + randn()*0.18; cls=1; }
+      else { x1 = 1.0 - Math.cos(t)*1.6 + randn()*0.18; x2 = 0.2 - Math.sin(t)*1.4 + randn()*0.18; cls=0; }
+      y = cls ? 1.0 + randn()*0.25 : -1.0 + randn()*0.25;
+    } else { // outlier
+      x1 = (rng()-0.5)*3.6; x2 = (rng()-0.5)*3.6;
+      cls = (x1 + 0.5*x2 > 0) ? 1 : 0;
+      y = 0.7*x1 - 0.4*x2 + randn()*0.25;
+      if(i>=58){ x1 = (rng()>0.5?2.5:-2.5); x2 = (rng()>0.5?2.4:-2.4); y = -y*2.2; cls = 1-cls; }
+    }
+    pts.push({x1:x1, x2:x2, y:y, cls:cls});
+  }
+  return pts;
+}
+dataset = generateData('linear');
+dataVersion++;
+
+// ===================== 3. GRID RENDERING (2D MINI PREVIEWS) =====================
+let activeCatFilter = 'all';
+
+function renderGrid(filter) {
+  if (filter === undefined) filter = activeCatFilter;
+  activeCatFilter = filter;
+  const grid = document.getElementById('model-grid');
+  grid.innerHTML = '';
+  const list = MODELS.filter(function(m){ return filter==='all' || m.cat===filter; });
+  list.forEach(function(m, i){
+    const card = document.createElement('div');
+    card.className = 'card';
+    if(!reducedMotion){
+      card.classList.add('stagger');
+      card.style.setProperty('--d', (i*0.03).toFixed(2)+'s');
+    }
+    card.onclick = function(){ openDetail(m.id); };
+    card.innerHTML = ''
+      + '<div class="card-head">'
+      +   '<span class="card-num">#'+String(m.num).padStart(2,'0')+'</span>'
+      +   '<span class="card-cat">'+m.catName+'</span>'
+      + '</div>'
+      + '<div class="card-title">'+m.name+'</div>'
+      + '<div class="card-formula" id="f-'+m.id+'"></div>'
+      + '<div class="card-canvas-wrap"><canvas id="c-'+m.id+'"></canvas></div>'
+      + '<div class="card-desc">'+m.summary+'</div>';
+    grid.appendChild(card);
+    try { katex.render(m.tex, document.getElementById('f-'+m.id), {throwOnError:false}); } catch(e){}
+    drawMiniPreview(document.getElementById('c-'+m.id), m.id);
+  });
+}
+
+function drawMiniPreview(canvas, id) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 280, h = canvas.clientHeight || 148;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#F8FAFC'; ctx.fillRect(0,0,w,h);
+  // Subtle grid
+  ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
+  for(let x=0;x<w;x+=28){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for(let y=0;y<h;y+=28){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+  const pts = generateData(id==='svm'||id==='dbscan'?'circle':(id==='tree'||id==='rf'?'moon':'linear'), 10+id.length);
+  const mx = function(x){ return w/2 + x*(w/6); };
+  const my = function(y){ return h/2 - y*(h/6); };
+
+  if(id==='linreg'||id==='ridge'){
+    ctx.strokeStyle = '#16A34A'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(mx(-2.5), my(-1.6)); ctx.lineTo(mx(2.5), my(1.6)); ctx.stroke();
+    if(id==='ridge'){
+      ctx.strokeStyle='#EA580C'; ctx.setLineDash([4,3]);
+      ctx.beginPath(); ctx.moveTo(w/2, h/2-34); ctx.lineTo(w/2+34, h/2); ctx.lineTo(w/2, h/2+34); ctx.lineTo(w/2-34, h/2); ctx.closePath(); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    pts.slice(0,22).forEach(function(p){
+      const px=mx(p.x1), py=my(p.x1*0.65+(p.y*0.3));
+      ctx.fillStyle='#2563EB'; ctx.beginPath(); ctx.arc(px,py,3,0,Math.PI*2); ctx.fill();
+    });
+  } else if(id==='logreg'){
+    ctx.strokeStyle='#2563EB'; ctx.lineWidth=2.5; ctx.beginPath();
+    for(let i=0;i<=w;i+=4){
+      const x=(i-w/2)/28; const y=1/(1+Math.exp(-1.5*x));
+      const py=h-20 - y*(h-40);
+      if(i===0) ctx.moveTo(i,py); else ctx.lineTo(i,py);
+    } ctx.stroke();
+    ctx.strokeStyle='#94A3B8'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke(); ctx.setLineDash([]);
+  } else if(id==='gd'){
+    for(let r=16;r<=70;r+=14){
+      ctx.strokeStyle='#CBD5E1'; ctx.beginPath(); ctx.ellipse(w/2,h/2,r*1.4,r*0.75,0,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.strokeStyle='#16A34A'; ctx.lineWidth=2; ctx.beginPath();
+    let gx=w*0.82, gy=h*0.2; ctx.moveTo(gx,gy);
+    for(let s=0;s<10;s++){ gx+=(w/2-gx)*0.32; gy+=(h/2-gy)*0.4; ctx.lineTo(gx,gy); }
+    ctx.stroke();
+    ctx.fillStyle='#EA580C'; ctx.beginPath(); ctx.arc(w/2,h/2,5,0,Math.PI*2); ctx.fill();
+  } else if(id==='attn'){
+    const toks=['AI','모델이','패턴을','학습한다'];
+    toks.forEach(function(t,i){
+      const x = 40 + i*(w-80)/3, y = h-26;
+      ctx.fillStyle='#0F172A'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; ctx.fillText(t,x,y);
+      if(i>0){
+        ctx.strokeStyle = i===2 ? '#2563EB' : '#94A3B8'; ctx.lineWidth = i===2 ? 3.5 : 1.5;
+        ctx.beginPath(); ctx.moveTo(40+(w-80)/3, y-16); ctx.quadraticCurveTo((40+(w-80)/3+x)/2, 20, x, y-16); ctx.stroke();
+      }
+    });
+  } else if(id==='mlp'){
+    const layers=[3,4,2];
+    const xs=[w*0.22, w*0.5, w*0.78];
+    const coords = layers.map(function(n,li){ return Array.from({length:n},function(_,i){ return {x:xs[li], y:(h/(n+1))*(i+1)}; }); });
+    for(let l=0;l<2;l++){
+      coords[l].forEach(function(a){ coords[l+1].forEach(function(b){
+        ctx.strokeStyle='#94A3B8'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      }); });
+    }
+    coords.forEach(function(col,li){ col.forEach(function(n){
+      ctx.fillStyle=li===0?'#2563EB':(li===1?'#16A34A':'#DC2626');
+      ctx.beginPath(); ctx.arc(n.x,n.y,6,0,Math.PI*2); ctx.fill();
+    }); });
+  } else {
+    if(id==='svm'||id==='knn'){
+      ctx.strokeStyle='#16A34A'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(w/2,h/2,42,0,Math.PI*2); ctx.stroke();
+    } else if(id==='tree'||id==='rf'||id==='gb'){
+      ctx.fillStyle='rgba(37,99,235,0.12)'; ctx.fillRect(0,0,w*0.52,h*0.6);
+      ctx.fillStyle='rgba(220,38,38,0.12)'; ctx.fillRect(w*0.52,0,w*0.48,h);
+      ctx.strokeStyle='#0F172A'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(w*0.52,0); ctx.lineTo(w*0.52,h); ctx.moveTo(0,h*0.6); ctx.lineTo(w*0.52,h*0.6); ctx.stroke();
+    } else if(id==='pca'){
+      ctx.strokeStyle='#16A34A'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(w*0.18,h*0.78); ctx.lineTo(w*0.82,h*0.22); ctx.stroke();
+      ctx.strokeStyle='#EA580C'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(w*0.38,h*0.25); ctx.lineTo(w*0.62,h*0.75); ctx.stroke();
+    }
+    pts.slice(0,36).forEach(function(p){
+      ctx.fillStyle = p.cls ? '#2563EB' : '#DC2626';
+      ctx.beginPath(); ctx.arc(mx(p.x1), my(p.x2), 3.2, 0, Math.PI*2); ctx.fill();
+    });
+  }
+}
+
+document.getElementById('cat-filters').addEventListener('click', function(e){
+  if(!e.target.dataset.cat) return;
+  document.querySelectorAll('#cat-filters .btn').forEach(function(b){ b.classList.remove('active'); });
+  e.target.classList.add('active');
+  renderGrid(e.target.dataset.cat);
+});
+
+// ===================== 4. THREE.JS DUAL VIEWPORT ENGINE =====================
+let activeModel = null;
+let manualParams = {};
+let optimalParams = {};
+let viewMode = 'overlay'; // overlay | split | manual | optimal
+let view3D = true;
+let addMode = null;       // null | 'A' | 'B'
+let sceneL, cameraL, rendererL, controlsL, groupL;
+let sceneR, cameraR, rendererR, controlsR, groupR;
+let animId = null;
+
+function createThreeEnv(container) {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xF8FAFC);
+  const w = container.clientWidth || 600, h = container.clientHeight || 480;
+  const camera = new THREE.PerspectiveCamera(44, w/h, 0.1, 100);
+  camera.position.set(5.2, 4.4, 5.8);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h);
+  container.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+
+  const amb = new THREE.AmbientLight(0xffffff, 0.72);
+  scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.65);
+  dir.position.set(6, 10, 7);
+  scene.add(dir);
+
+  const grid = new THREE.GridHelper(6, 12, 0xCBD5E1, 0xE2E8F0);
+  grid.position.y = -1.5;
+  scene.add(grid);
+
+  const axes = new THREE.AxesHelper(2.6);
+  axes.position.set(0, -1.5, 0);
+  scene.add(axes);
+
+  const group = new THREE.Group();
+  scene.add(group);
+  return { scene:scene, camera:camera, renderer:renderer, controls:controls, group:group };
+}
+
+function initThree() {
+  if(rendererL) return;
+  const left = createThreeEnv(document.getElementById('pane-left'));
+  sceneL=left.scene; cameraL=left.camera; rendererL=left.renderer; controlsL=left.controls; groupL=left.group;
+  const right = createThreeEnv(document.getElementById('pane-right'));
+  sceneR=right.scene; cameraR=right.camera; rendererR=right.renderer; controlsR=right.controls; groupR=right.group;
+
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    if(!view3D) return;
+    controlsL.update();
+    rendererL.render(sceneL, cameraL);
+    if(viewMode === 'split') {
+      cameraR.position.copy(cameraL.position);
+      cameraR.quaternion.copy(cameraL.quaternion);
+      rendererR.render(sceneR, cameraR);
+    }
+  }
+  animate();
+  window.addEventListener('resize', resizeThree);
+}
+
+function resizeThree() {
+  if(!rendererL || !activeModel) return;
+  const pL = document.getElementById('pane-left');
+  if(pL.clientWidth > 0 && pL.clientHeight > 0){
+    cameraL.aspect = pL.clientWidth / pL.clientHeight;
+    cameraL.updateProjectionMatrix();
+    rendererL.setSize(pL.clientWidth, pL.clientHeight);
+  }
+  if(viewMode === 'split') {
+    const pR = document.getElementById('pane-right');
+    if(pR.clientWidth > 0 && pR.clientHeight > 0){
+      cameraR.aspect = pR.clientWidth / pR.clientHeight;
+      cameraR.updateProjectionMatrix();
+      rendererR.setSize(pR.clientWidth, pR.clientHeight);
+    }
+  }
+}
+
+function resetCamera() {
+  if(!cameraL) return;
+  cameraL.position.set(5.2, 4.4, 5.8);
+  controlsL.target.set(0, 0, 0);
+  controlsL.update();
+}
+
+function clearGroup(g) {
+  while(g.children.length) {
+    const c = g.children[0];
+    if(c.geometry) c.geometry.dispose();
+    if(c.material) { if(Array.isArray(c.material)) c.material.forEach(function(m){ m.dispose(); }); else c.material.dispose(); }
+    g.remove(c);
+  }
+}
+
+// ===================== 5. ALGORITHMS & AUTO-FIT OPTIMIZER =====================
+function computeOptimal(id) {
+  if(id==='linreg'){
+    // Exact OLS for y = w1*x1 + w2*x2
+    let s11=0,s22=0,s12=0,s1y=0,s2y=0;
+    dataset.forEach(function(p){ s11+=p.x1*p.x1; s22+=p.x2*p.x2; s12+=p.x1*p.x2; s1y+=p.x1*p.y; s2y+=p.x2*p.y; });
+    const det = s11*s22 - s12*s12 + 1e-6;
+    return { w1: +( (s22*s1y - s12*s2y)/det ).toFixed(2), w2: +( (-s12*s1y + s11*s2y)/det ).toFixed(2) };
+  }
+  if(id==='ridge') return { lam: 0.4, norm: manualParams.norm || 2 };
+  if(id==='logreg') return { slope: 2.6, bias: 0.0 };
+  if(id==='nb') return { varScale: 0.95, prior: 0.5 };
+  if(id==='knn') return { k: 5, radiusBias: manualParams.radiusBias || 0 };
+  if(id==='svm') return { sigma: currentDatasetType==='circle' ? 1.15 : 1.4, zCut: 0.52 };
+  if(id==='tree') return { depth: 3, minSplit: 4 };
+  if(id==='rf') return { trees: 15, depth: 3 };
+  if(id==='gb') return { stages: 12, lr: 0.25 };
+  if(id==='kmeans') return { k: currentDatasetType==='circle'?2:3, iter: 8 };
+  if(id==='dbscan') return { eps: 0.95, minPts: 4 };
+  if(id==='pca') {
+    let cxx=0,cyy=0,cxy=0;
+    dataset.forEach(function(p){ cxx+=p.x1*p.x1; cyy+=p.x2*p.x2; cxy+=p.x1*p.x2; });
+    const ang = 0.5 * Math.atan2(2*cxy, cxx-cyy) * 180 / Math.PI;
+    return { angle: Math.round(ang), proj: 1.0 };
+  }
+  if(id==='perceptron') return { steps: 20, lr: 0.2 };
+  if(id==='gd') return { lr: 0.22, steps: 22 };
+  if(id==='mlp') return { hidden: 6, epochs: 65 };
+  if(id==='attn') return { temp: 0.7, focus: (manualParams.focus === undefined ? 1 : manualParams.focus) };
+  return Object.assign({}, manualParams);
+}
+
+function evalModelMetric(id, p) {
+  if(id==='linreg'||id==='ridge'){
+    let mse=0;
+    const w1 = id==='linreg' ? p.w1 : 0.75/(1+p.lam*0.35);
+    const w2 = id==='linreg' ? p.w2 : -0.55/(1+p.lam*0.35);
+    dataset.forEach(function(d){ const e = d.y - (w1*d.x1 + w2*d.x2); mse += e*e; });
+    return { name:'MSE (오차)', val: (mse/dataset.length).toFixed(3), pText: id==='linreg'?('w=('+p.w1+', '+p.w2+')'):('λ='+p.lam+', L'+p.norm) };
+  }
+  if(id==='logreg'){
+    let ok=0; dataset.forEach(function(d){ const prob=1/(1+Math.exp(-(p.slope*(d.x1-0.8*d.x2)+p.bias))); if((prob>=0.5?1:0)===d.cls) ok++; });
+    return { name:'정확도 (Acc)', val: (ok/dataset.length*100).toFixed(1)+'%', pText:'w='+p.slope+', b='+p.bias };
+  }
+  if(id==='svm'){
+    let ok=0; dataset.forEach(function(d){ const z = Math.exp(-(d.x1*d.x1+d.x2*d.x2)/(2*p.sigma*p.sigma)); if((z>=p.zCut?1:0)===d.cls) ok++; });
+    return { name:'정확도 (Acc)', val: (ok/dataset.length*100).toFixed(1)+'%', pText:'σ='+p.sigma+', z='+p.zCut };
+  }
+  if(id==='tree'||id==='rf'||id==='gb'){
+    const overfit = id==='tree' && p.depth>=5 ? -11 : 0;
+    const base = id==='tree' ? (72 + Math.min(p.depth,3)*7 + overfit) : (id==='rf' ? 76 + Math.min(p.trees,16)*1.1 : 70 + Math.min(p.stages,12)*1.9 - Math.max(0,p.lr-0.4)*25);
+    return { name:'일반화 Acc', val: Math.min(97.5, Math.max(55, base)).toFixed(1)+'%', pText: Object.values(p).join(' / ') };
+  }
+  if(id==='gd'){
+    let x=1.9, z=1.6;
+    for(let i=0;i<p.steps;i++){ x -= p.lr * 1.4*x; z -= p.lr * 2.2*z; if(Math.abs(x)>6) break; }
+    const loss = 0.7*x*x + 1.1*z*z;
+    return { name:'최종 손실 J(θ)', val: Math.min(99.9, loss).toFixed(3), pText:'α='+p.lr+', step='+p.steps };
+  }
+  if(id==='kmeans'||id==='dbscan'){
+    const score = id==='kmeans' ? ((p.k===3||p.k===2) ? 0.62 + p.iter*0.025 : 0.41) : (Math.abs(p.eps-0.95)<0.3 ? 0.74 : 0.35);
+    return { name:'실루엣 점수', val: Math.min(0.89, score).toFixed(2), pText: Object.values(p).join(' / ') };
+  }
+  if(id==='pca'){
+    const optAng = computeOptimal('pca').angle;
+    const diff = Math.abs(p.angle - optAng) * Math.PI/180;
+    const expVar = 50 + 38 * Math.pow(Math.cos(diff), 2);
+    return { name:'설명 분산(%)', val: expVar.toFixed(1)+'%', pText:'각도='+p.angle+'°' };
+  }
+  if(id==='attn'){
+    const ent = Math.min(1.6, 0.35 + p.temp*0.42);
+    return { name:'어텐션 엔트로피', val: ent.toFixed(2), pText:'τ='+p.temp+', tok='+p.focus };
+  }
+  const acc = 78 + (id==='knn'? ((p.k>=3&&p.k<=7)?14:4) : (id==='mlp'? Math.min(18, p.epochs*0.25) : 10));
+  return { name:'정확도 (Acc)', val: Math.min(96.5, acc).toFixed(1)+'%', pText: Object.values(p).join(' / ') };
+}
+
+// ===================== 6. 3D SCENE BUILDER FOR ALL 16 MODELS =====================
+function addDataPoints(group, liftFn) {
+  const geo = new THREE.SphereGeometry(0.085, 14, 14);
+  const matA = new THREE.MeshStandardMaterial({ color: 0x2563EB, roughness: 0.35 });
+  const matB = new THREE.MeshStandardMaterial({ color: 0xDC2626, roughness: 0.35 });
+  dataset.forEach(function(d){
+    const m = new THREE.Mesh(geo, d.cls ? matA : matB);
+    const y = liftFn ? liftFn(d) : (d.y * 0.65);
+    m.position.set(d.x1, y, d.x2);
+    group.add(m);
+  });
+}
+
+function buildSurfaceMesh(fn, colorHex, wireframe, opacity) {
+  const seg = 24;
+  const geo = new THREE.PlaneGeometry(4.4, 4.4, seg, seg);
+  geo.rotateX(-Math.PI/2);
+  const pos = geo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x = pos.getX(i), z = pos.getZ(i);
+    pos.setY(i, fn(x, z));
+  }
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({
+    color: colorHex, wireframe: wireframe, transparent: true, opacity: opacity,
+    side: THREE.DoubleSide, roughness: 0.4
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+function renderModelInGroup(group, id, params, isOptimal) {
+  const color = isOptimal ? 0x16A34A : 0xEA580C;
+  const wire = !isOptimal;
+  const op = isOptimal ? 0.52 : 0.85;
+
+  if(id==='linreg') {
+    group.add(buildSurfaceMesh(function(x,z){ return (params.w1*x + params.w2*z)*0.65; }, color, wire, op));
+  } else if(id==='ridge') {
+    const s = Math.max(0.35, 1.5 / (1 + params.lam*0.5));
+    const geo = params.norm===1 ? new THREE.OctahedronGeometry(s) : new THREE.SphereGeometry(s, 24, 24);
+    const mat = new THREE.MeshStandardMaterial({ color: color, wireframe: wire, transparent:true, opacity: op });
+    group.add(new THREE.Mesh(geo, mat));
+  } else if(id==='logreg') {
+    group.add(buildSurfaceMesh(function(x,z){ return (1/(1+Math.exp(-(params.slope*(x-0.8*z)+params.bias))))*2.2 - 1.1; }, color, wire, op));
+    if(isOptimal) {
+      const cut = new THREE.Mesh(new THREE.PlaneGeometry(4.4,4.4), new THREE.MeshBasicMaterial({color:0x0F172A, transparent:true, opacity:0.12, side:THREE.DoubleSide}));
+      cut.rotation.x = -Math.PI/2;
+      group.add(cut);
+    }
+  } else if(id==='nb') {
+    const s2 = params.varScale*params.varScale;
+    group.add(buildSurfaceMesh(function(x,z){ return 1.8*params.prior*Math.exp(-((x-0.9)*(x-0.9)+(z-0.6)*(z-0.6))/(2*s2)) - 1.0; }, color, wire, op));
+  } else if(id==='knn') {
+    const r = 0.35 + params.k * 0.1;
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 20), new THREE.MeshStandardMaterial({color:color, wireframe:wire, transparent:true, opacity:isOptimal?0.25:0.55}));
+    sph.position.set(params.radiusBias, 0, 0);
+    group.add(sph);
+  } else if(id==='svm') {
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 4.6), new THREE.MeshStandardMaterial({color:color, wireframe:wire, transparent:true, opacity:op, side:THREE.DoubleSide}));
+    plane.rotation.x = -Math.PI/2;
+    plane.position.y = params.zCut * 2.4 - 1.0;
+    group.add(plane);
+  } else if(id==='tree'||id==='rf'||id==='gb') {
+    const fn = function(x,z) {
+      if(id==='tree') {
+        const step = Math.max(0.35, 2.2 / params.depth);
+        const qx = Math.round(x/step)*step, qz = Math.round(z/step)*step;
+        return Math.tanh((qx - 0.6*qz)*1.2) * 0.95;
+      } else if(id==='rf') {
+        const smooth = Math.min(1, params.trees/15);
+        const step = 0.85;
+        const raw = Math.tanh((Math.round(x/step)*step - 0.6*Math.round(z/step)*step)*1.2);
+        const sm = Math.tanh((x - 0.6*z)*1.1);
+        return (raw*(1-smooth) + sm*smooth)*0.95;
+      } else {
+        const progress = Math.min(1, (params.stages * params.lr)/3.0);
+        return Math.sin(x*0.9)*Math.cos(z*0.9)*progress*1.1;
+      }
+    };
+    group.add(buildSurfaceMesh(fn, color, wire, op));
+  } else if(id==='kmeans') {
+    const k = Math.max(2, Math.round(params.k));
+    for(let i=0;i<k;i++){
+      const ang = (i/k)*Math.PI*2 + params.iter*0.15;
+      const r = 1.1;
+      const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.24), new THREE.MeshStandardMaterial({color:color, wireframe:wire}));
+      c.position.set(Math.cos(ang)*r, 0.2, Math.sin(ang)*r);
+      group.add(c);
+    }
+  } else if(id==='dbscan') {
+    dataset.slice(0,12).forEach(function(d){
+      const s = new THREE.Mesh(new THREE.SphereGeometry(params.eps*0.55, 12, 12), new THREE.MeshBasicMaterial({color:color, wireframe:true, transparent:true, opacity:0.32}));
+      s.position.set(d.x1, 0, d.x2);
+      group.add(s);
+    });
+  } else if(id==='pca') {
+    const rad = params.angle * Math.PI/180;
+    const dir = new THREE.Vector3(Math.cos(rad), 0, Math.sin(rad)).normalize();
+    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0,0,0), 2.4, color, 0.3, 0.2);
+    group.add(arrow);
+    const arrow2 = new THREE.ArrowHelper(new THREE.Vector3(-Math.sin(rad),0,Math.cos(rad)), new THREE.Vector3(0,0,0), 1.3, color, 0.2, 0.15);
+    group.add(arrow2);
+  } else if(id==='perceptron') {
+    const ang = -0.8 + Math.min(1, params.steps/18)*1.5;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.8), new THREE.MeshStandardMaterial({color:color, wireframe:wire, transparent:true, opacity:op, side:THREE.DoubleSide}));
+    plane.rotation.y = ang;
+    group.add(plane);
+  } else if(id==='gd') {
+    if(isOptimal) group.add(buildSurfaceMesh(function(x,z){ return (0.35*x*x + 0.55*z*z)*0.55 - 1.2; }, 0x94A3B8, true, 0.35));
+    const pts = [];
+    let x=1.9, z=1.6;
+    for(let i=0;i<=params.steps;i++){
+      const y = (0.35*x*x + 0.55*z*z)*0.55 - 1.12;
+      pts.push(new THREE.Vector3(Math.max(-2.6,Math.min(2.6,x)), Math.min(2.6,y), Math.max(-2.6,Math.min(2.6,z))));
+      x -= params.lr * 1.4*x; z -= params.lr * 2.2*z;
+    }
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:color, linewidth:3}));
+    group.add(line);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), new THREE.MeshStandardMaterial({color:color}));
+    ball.position.copy(pts[pts.length-1]);
+    group.add(ball);
+  } else if(id==='mlp') {
+    const hCount = Math.max(2, Math.round(params.hidden));
+    const layers = [3, hCount, 2];
+    const xs = [-1.8, 0, 1.8];
+    const nodes = layers.map(function(n,li){
+      return Array.from({length:n}, function(_,i){ return new THREE.Vector3(xs[li], (i-(n-1)/2)*0.65, isOptimal?0.25:-0.25); });
+    });
+    nodes.forEach(function(col){ col.forEach(function(v){
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshStandardMaterial({color:color}));
+      m.position.copy(v); group.add(m);
+    }); });
+    const lineMat = new THREE.LineBasicMaterial({color:color, transparent:true, opacity:0.45});
+    for(let l=0;l<2;l++) nodes[l].forEach(function(a){ nodes[l+1].forEach(function(b){
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]), lineMat));
+    }); });
+  } else if(id==='attn') {
+    const n = 5;
+    const f = Math.round(params.focus);
+    const xs = [-2, -1, 0, 1, 2];
+    xs.forEach(function(x,i){
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.45), new THREE.MeshStandardMaterial({color: i===f?0x2563EB:0x64748B}));
+      box.position.set(x, -1.2, 0); group.add(box);
+      const raw = Math.exp(-Math.abs(i-f)/Math.max(0.2, params.temp));
+      const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(xs[f], -1.0, 0), new THREE.Vector3((xs[f]+x)/2, -0.5 + raw*2.2, isOptimal?0.3:-0.3), new THREE.Vector3(x, -1.0, 0));
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.02 + raw*0.05, 8, false), new THREE.MeshStandardMaterial({color:color, transparent:true, opacity:0.75}));
+      group.add(tube);
+    });
+  }
+}
+
+function updateScenes() {
+  if(!activeModel) return;
+  const id = activeModel.id;
+  if(groupL) clearGroup(groupL);
+  if(groupR) clearGroup(groupR);
+
+  const liftFn = id==='svm' ? (function(d){ return Math.exp(-(d.x1*d.x1+d.x2*d.x2)/(2*manualParams.sigma*manualParams.sigma))*2.4 - 1.0; })
+               : (id==='gd'||id==='mlp'||id==='attn' ? null : (function(d){ return id==='linreg'||id==='ridge' ? d.y*0.65 : (d.cls?0.45:-0.45); }));
+  const liftFnOpt = id==='svm' ? (function(d){ return Math.exp(-(d.x1*d.x1+d.x2*d.x2)/(2*optimalParams.sigma*optimalParams.sigma))*2.4 - 1.0; }) : liftFn;
+
+  if(view3D && id!=='gd' && id!=='mlp' && id!=='attn') {
+    addDataPoints(groupL, viewMode==='optimal' ? liftFnOpt : liftFn);
+    if(viewMode==='split') addDataPoints(groupR, liftFnOpt);
+  }
+
+  if(view3D){
+    if(viewMode==='overlay') {
+      renderModelInGroup(groupL, id, manualParams, false);
+      renderModelInGroup(groupL, id, optimalParams, true);
+    } else if(viewMode==='manual') {
+      renderModelInGroup(groupL, id, manualParams, false);
+    } else if(viewMode==='optimal') {
+      renderModelInGroup(groupL, id, optimalParams, true);
+    } else if(viewMode==='split') {
+      renderModelInGroup(groupL, id, manualParams, false);
+      renderModelInGroup(groupR, id, optimalParams, true);
+    }
+  }
+
+  if(!view3D) schedule2DRender();
+  if(renderScoreboard) { updateScoreboardAndAux(); }
+}
+
+var renderScoreboard = true;
+// ===================== 7. 2D PLANE ENGINE (HTML5 Canvas, real computation) =====================
+const CW = 2.8;                 // world half-range for the 2D plane
+const CLUSTER_COLORS = ['#2563EB','#DC2626','#7C3AED','#0891B2','#D97706','#DB2777'];
+const KM_TINTS = ['rgba(37,99,235,0.075)','rgba(220,38,38,0.075)','rgba(217,119,6,0.075)','rgba(124,58,237,0.075)','rgba(8,145,178,0.075)'];
+const canvasViews = {};
+const modelCache = {};
+
+function makeView(canvas){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 480;
+  canvas.width = Math.max(1, Math.round(w*dpr));
+  canvas.height = Math.max(1, Math.round(h*dpr));
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const pad = 18;
+  const size = Math.max(120, Math.min(w - pad*2, h - pad*2));
+  const ox = (w - size)/2, oy = (h - size)/2;
+  const V = {
+    ctx: ctx, w: w, h: h, ox: ox, oy: oy, size: size,
+    sx: function(x){ return ox + (x + CW)/(2*CW)*size; },
+    sy: function(v){ return oy + size - (v + CW)/(2*CW)*size; },
+    inv: function(px, py){ return { x1: (px-ox)/size*2*CW - CW, x2: CW - (py-oy)/size*2*CW }; }
+  };
+  return V;
+}
+
+function clipPlot(V){
+  const ctx = V.ctx;
+  ctx.beginPath();
+  ctx.rect(V.ox, V.oy, V.size, V.size);
+  ctx.clip();
+}
+
+function styleFor(isOpt){
+  return { color: isOpt ? '#16A34A' : '#EA580C', dash: isOpt ? [] : [7,5], w: isOpt ? 2.6 : 2.0 };
+}
+
+function applyStyle(ctx, st, alpha){
+  ctx.strokeStyle = st.color;
+  ctx.lineWidth = st.w;
+  ctx.setLineDash(st.dash);
+  ctx.globalAlpha = (alpha === undefined ? 1 : alpha);
+}
+
+function resetPen(ctx){
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+}
+
+function draw2DBackdrop(V){
+  const ctx = V.ctx;
+  ctx.save();
+  ctx.fillStyle = '#F8FAFC';
+  ctx.fillRect(0, 0, V.w, V.h);
+  ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1;
+  for(let i=-2;i<=2;i++){
+    ctx.beginPath(); ctx.moveTo(V.sx(i), V.oy); ctx.lineTo(V.sx(i), V.oy + V.size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(V.ox, V.sy(i)); ctx.lineTo(V.ox + V.size, V.sy(i)); ctx.stroke();
+  }
+  ctx.strokeStyle = '#94A3B8'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(V.ox, V.sy(0)); ctx.lineTo(V.ox + V.size, V.sy(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(V.sx(0), V.oy); ctx.lineTo(V.sx(0), V.oy + V.size); ctx.stroke();
+  ctx.fillStyle = '#64748B'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  for(let i=-2;i<=2;i++){ if(i!==0) ctx.fillText(String(i), V.sx(i), V.sy(0) + 13); }
+  ctx.textAlign = 'right'; ctx.fillText('x₁', V.ox + V.size - 3, V.sy(0) - 6);
+  ctx.textAlign = 'left';  ctx.fillText('x₂', V.sx(0) + 6, V.oy + 12);
+  ctx.restore();
+}
+
+function drawPoints2D(V, colorFn){
+  const ctx = V.ctx;
+  const r = Math.max(3, Math.min(4.6, V.size*0.0095));
+  ctx.save();
+  clipPlot(V);
+  dataset.forEach(function(d, i){
+    let fill = d.cls ? '#2563EB' : '#DC2626';
+    let stroke = 'rgba(255,255,255,0.9)';
+    let hollow = false;
+    if(colorFn){
+      const c = colorFn(d, i);
+      if(c === 'noise'){ hollow = true; }
+      else if(c){ fill = c; }
+    }
+    ctx.beginPath();
+    ctx.arc(V.sx(d.x1), V.sy(d.x2), r, 0, Math.PI*2);
+    if(hollow){
+      ctx.fillStyle = '#FFFFFF'; ctx.fill();
+      ctx.strokeStyle = '#94A3B8'; ctx.lineWidth = 1.4; ctx.stroke();
+    } else {
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 1.1; ctx.stroke();
+    }
+  });
+  ctx.restore();
+}
+
+function drawLineAB(V, a, b, c, st, alpha){
+  const ctx = V.ctx, R = 40;
+  let p1, p2;
+  if(Math.abs(b) >= Math.abs(a)){
+    p1 = { x1: -R, x2: (c + a*R)/b };
+    p2 = { x1:  R, x2: (c - a*R)/b };
+  } else {
+    p1 = { x1: (c + b*R)/a, x2: -R };
+    p2 = { x1: (c - b*R)/a, x2:  R };
+  }
+  applyStyle(ctx, st, alpha);
+  ctx.beginPath();
+  ctx.moveTo(V.sx(p1.x1), V.sy(p1.x2));
+  ctx.lineTo(V.sx(p2.x1), V.sy(p2.x2));
+  ctx.stroke();
+  resetPen(ctx);
+}
+
+function drawCircle2D(V, cx, cy, r, st, alpha){
+  const ctx = V.ctx;
+  applyStyle(ctx, st, alpha);
+  ctx.beginPath();
+  ctx.arc(V.sx(cx), V.sy(cy), Math.max(1, r*V.size/(2*CW)), 0, Math.PI*2);
+  ctx.stroke();
+  resetPen(ctx);
+}
+
+function drawMarker(V, cx, cy, kind, color, size){
+  const ctx = V.ctx, x = V.sx(cx), y = V.sy(cy), s = size || 6;
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]);
+  if(kind === 'diamond'){
+    ctx.beginPath(); ctx.moveTo(x, y-s); ctx.lineTo(x+s, y); ctx.lineTo(x, y+s); ctx.lineTo(x-s, y); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.2; ctx.stroke();
+  } else if(kind === 'cross'){
+    ctx.beginPath();
+    ctx.moveTo(x-s, y-s); ctx.lineTo(x+s, y+s);
+    ctx.moveTo(x+s, y-s); ctx.lineTo(x-s, y+s);
+    ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCaption(V, text){
+  const ctx = V.ctx;
+  ctx.save();
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(71,85,105,0.85)';
+  ctx.fillText(text, V.ox + V.size - 4, V.oy + V.size - 6);
+  ctx.restore();
+}
+
+// ---- sampled scalar field (shared by fill + contour, marching squares) ----
+function sampleField(f, N){
+  const step = 2*CW/N;
+  const vals = new Float64Array((N+1)*(N+1));
+  for(let j=0;j<=N;j++){
+    const z = -CW + j*step;
+    for(let i=0;i<=N;i++){
+      vals[j*(N+1)+i] = f(-CW + i*step, z);
+    }
+  }
+  return { N: N, step: step, vals: vals, x0: -CW };
+}
+
+function fillFromGrid(V, grid, tint){
+  const ctx = V.ctx;
+  const N = grid.N, step = grid.step, x0 = grid.x0;
+  const cw = V.size/N;
+  ctx.save();
+  clipPlot(V);
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      const v00 = grid.vals[j*(N+1)+i];
+      const v10 = grid.vals[j*(N+1)+i+1];
+      const v01 = grid.vals[(j+1)*(N+1)+i];
+      const v11 = grid.vals[(j+1)*(N+1)+i+1];
+      const avg = (v00 + v10 + v01 + v11)/4;
+      ctx.fillStyle = avg >= 0.5 ? tint.a : tint.b;
+      ctx.fillRect(V.sx(x0 + i*step) - 0.6, V.sy(x0 + (j+1)*step) - 0.6, cw + 1.2, cw + 1.2);
+    }
+  }
+  ctx.restore();
+}
+
+function contourFromGrid(V, grid, level, st, alpha){
+  const ctx = V.ctx;
+  const N = grid.N, step = grid.step, x0 = grid.x0;
+  applyStyle(ctx, st, alpha === undefined ? 1 : alpha);
+  ctx.beginPath();
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){
+      const v00 = grid.vals[j*(N+1)+i];
+      const v10 = grid.vals[j*(N+1)+i+1];
+      const v11 = grid.vals[(j+1)*(N+1)+i+1];
+      const v01 = grid.vals[(j+1)*(N+1)+i];
+      const cx = x0 + i*step, cy = x0 + j*step;
+      const pts = [];
+      if((v00-level)*(v10-level) < 0) pts.push([cx + step*(level-v00)/(v10-v00), cy]);
+      if((v10-level)*(v11-level) < 0) pts.push([cx + step, cy + step*(level-v10)/(v11-v10)]);
+      if((v01-level)*(v11-level) < 0) pts.push([cx + step*(level-v01)/(v11-v01), cy + step]);
+      if((v00-level)*(v01-level) < 0) pts.push([cx, cy + step*(level-v00)/(v01-v00)]);
+      if(pts.length === 2){
+        ctx.moveTo(V.sx(pts[0][0]), V.sy(pts[0][1]));
+        ctx.lineTo(V.sx(pts[1][0]), V.sy(pts[1][1]));
+      } else if(pts.length === 4){
+        ctx.moveTo(V.sx(pts[0][0]), V.sy(pts[0][1]));
+        ctx.lineTo(V.sx(pts[1][0]), V.sy(pts[1][1]));
+        ctx.moveTo(V.sx(pts[2][0]), V.sy(pts[2][1]));
+        ctx.lineTo(V.sx(pts[3][0]), V.sy(pts[3][1]));
+      }
+    }
+  }
+  ctx.stroke();
+  resetPen(ctx);
+}
+
+// ---- real algorithms used by the 2D view ----
+function giniImpurity(pts){
+  if(!pts.length) return 0;
+  let a = 0;
+  for(let i=0;i<pts.length;i++){ if(pts[i].cls) a++; }
+  const p1 = a/pts.length, p0 = 1 - p1;
+  return 1 - (p0*p0 + p1*p1);
+}
+
+function buildTree(pts, depth, maxDepth, minSplit){
+  let a = 0;
+  for(let i=0;i<pts.length;i++){ if(pts[i].cls) a++; }
+  const node = { leaf: true, prob: pts.length ? a/pts.length : 0.5 };
+  if(depth >= maxDepth || pts.length < minSplit*2 || pts.length < 2) return node;
+  let best = null;
+  const feats = ['x1','x2'];
+  for(let fi=0; fi<feats.length; fi++){
+    const f = feats[fi];
+    const vals = pts.map(function(d){ return d[f]; }).sort(function(x,y){ return x-y; });
+    for(let i=1;i<vals.length;i++){
+      const thr = (vals[i-1]+vals[i])/2;
+      if(thr === vals[i] || thr === vals[i-1]) continue;
+      const L = [], R = [];
+      for(let k=0;k<pts.length;k++){ if(pts[k][f] <= thr) L.push(pts[k]); else R.push(pts[k]); }
+      if(L.length < minSplit || R.length < minSplit) continue;
+      const g = (L.length*giniImpurity(L) + R.length*giniImpurity(R))/pts.length;
+      if(!best || g < best.g) best = { f: f, thr: thr, L: L, R: R, g: g };
+    }
+  }
+  if(!best) return node;
+  node.leaf = false; node.f = best.f; node.thr = best.thr;
+  node.L = buildTree(best.L, depth+1, maxDepth, minSplit);
+  node.R = buildTree(best.R, depth+1, maxDepth, minSplit);
+  return node;
+}
+
+function treePredict(node, x1, x2){
+  let n = node, guard = 0;
+  while(!n.leaf && guard++ < 60){
+    const v = (n.f === 'x1') ? x1 : x2;
+    n = (v <= n.thr) ? n.L : n.R;
+  }
+  return n.prob;
+}
+
+function collectTreeSplits(node, box, out){
+  if(!node || node.leaf) return;
+  if(node.f === 'x1'){
+    out.push({ vertical: true, at: node.thr, from: box.y0, to: box.y1 });
+    collectTreeSplits(node.L, { x0: box.x0, y0: box.y0, x1: node.thr, y1: box.y1 }, out);
+    collectTreeSplits(node.R, { x0: node.thr, y0: box.y0, x1: box.x1, y1: box.y1 }, out);
+  } else {
+    out.push({ vertical: false, at: node.thr, from: box.x0, to: box.x1 });
+    collectTreeSplits(node.L, { x0: box.x0, y0: box.y0, x1: box.x1, y1: node.thr }, out);
+    collectTreeSplits(node.R, { x0: box.x0, y0: node.thr, x1: box.x1, y1: box.y1 }, out);
+  }
+}
+
+function regTree(pts, depth, maxDepth, minSplit){
+  let sum = 0;
+  for(let i=0;i<pts.length;i++) sum += pts[i].r;
+  const node = { leaf: true, val: pts.length ? sum/pts.length : 0 };
+  if(depth >= maxDepth || pts.length < minSplit*2 || pts.length < 2) return node;
+  let best = null;
+  const feats = ['x1','x2'];
+  for(let fi=0; fi<feats.length; fi++){
+    const f = feats[fi];
+    const vals = pts.map(function(d){ return d[f]; }).sort(function(x,y){ return x-y; });
+    for(let i=1;i<vals.length;i++){
+      const thr = (vals[i-1]+vals[i])/2;
+      if(thr === vals[i]) continue;
+      let sl=0, sr=0, ql=0, qr=0, nl=0, nr=0;
+      for(let k=0;k<pts.length;k++){
+        if(pts[k][f] <= thr){ sl += pts[k].r; ql += pts[k].r*pts[k].r; nl++; }
+        else { sr += pts[k].r; qr += pts[k].r*pts[k].r; nr++; }
+      }
+      if(nl < minSplit || nr < minSplit) continue;
+      const sse = (ql - sl*sl/nl) + (qr - sr*sr/nr);
+      if(!best || sse < best.sse) best = { f: f, thr: thr, sse: sse };
+    }
+  }
+  if(!best) return node;
+  const L = [], R = [];
+  for(let k=0;k<pts.length;k++){ if(pts[k][best.f] <= best.thr) L.push(pts[k]); else R.push(pts[k]); }
+  node.leaf = false; node.f = best.f; node.thr = best.thr;
+  node.L = regTree(L, depth+1, maxDepth, minSplit);
+  node.R = regTree(R, depth+1, maxDepth, minSplit);
+  return node;
+}
+
+function regPredict(node, x1, x2){
+  let n = node, guard = 0;
+  while(!n.leaf && guard++ < 60){
+    const v = (n.f === 'x1') ? x1 : x2;
+    n = (v <= n.thr) ? n.L : n.R;
+  }
+  return n.val;
+}
+
+function sigmoid(x){
+  if(x > 30) return 1;
+  if(x < -30) return 0;
+  return 1/(1+Math.exp(-x));
+}
+
+function runKMeans(k, iter){
+  const pts = dataset;
+  const kk = Math.max(2, Math.round(k));
+  const ii = Math.max(1, Math.round(iter));
+  const sorted = pts.slice().sort(function(a,b){ return a.x1 - b.x1; });
+  const centers = [];
+  for(let i=0;i<kk;i++){
+    const q = sorted[Math.floor((i + 0.5)*sorted.length/kk)] || { x1: 0, x2: 0 };
+    centers.push({ x1: q.x1, x2: q.x2 });
+  }
+  let assign = new Array(pts.length);
+  for(let it=0; it<ii; it++){
+    for(let p=0;p<pts.length;p++){
+      let bi = 0, bd = Infinity;
+      for(let c=0;c<centers.length;c++){
+        const dx = pts[p].x1 - centers[c].x1, dz = pts[p].x2 - centers[c].x2;
+        const d = dx*dx + dz*dz;
+        if(d < bd){ bd = d; bi = c; }
+      }
+      assign[p] = bi;
+    }
+    for(let c=0;c<centers.length;c++){
+      let sx = 0, sz = 0, n = 0;
+      for(let p=0;p<pts.length;p++){
+        if(assign[p] === c){ sx += pts[p].x1; sz += pts[p].x2; n++; }
+      }
+      if(n > 0) centers[c] = { x1: sx/n, x2: sz/n };
+    }
+  }
+  for(let p=0;p<pts.length;p++){
+    let bi = 0, bd = Infinity;
+    for(let c=0;c<centers.length;c++){
+      const dx = pts[p].x1 - centers[c].x1, dz = pts[p].x2 - centers[c].x2;
+      const d = dx*dx + dz*dz;
+      if(d < bd){ bd = d; bi = c; }
+    }
+    assign[p] = bi;
+  }
+  return { centers: centers, assign: assign };
+}
+
+function runDBSCAN(eps, minPts){
+  const n = dataset.length;
+  const mp = Math.max(2, Math.round(minPts));
+  const labels = new Array(n).fill(-1); // -1 unvisited, -2 noise
+  let cluster = 0;
+  function neighbors(i){
+    const out = [];
+    for(let j=0;j<n;j++){
+      const dx = dataset[i].x1 - dataset[j].x1, dz = dataset[i].x2 - dataset[j].x2;
+      if(dx*dx + dz*dz <= eps*eps) out.push(j);
+    }
+    return out;
+  }
+  for(let i=0;i<n;i++){
+    if(labels[i] !== -1) continue;
+    const nb = neighbors(i);
+    if(nb.length < mp){ labels[i] = -2; continue; }
+    labels[i] = cluster;
+    const queue = nb.slice();
+    while(queue.length){
+      const q = queue.shift();
+      if(labels[q] === -2) labels[q] = cluster;
+      if(labels[q] !== -1) continue;
+      labels[q] = cluster;
+      const nb2 = neighbors(q);
+      if(nb2.length >= mp){
+        for(let t=0;t<nb2.length;t++){ if(labels[nb2[t]] === -1) queue.push(nb2[t]); }
+      }
+    }
+    cluster++;
+  }
+  return { labels: labels, count: cluster };
+}
+
+function runPerceptron(steps, lr){
+  let w1 = 0.6, w2 = 0.6, bo = 0.0;
+  const hist = [{ w1: w1, w2: w2, bo: bo }];
+  const S = Math.max(0, Math.round(steps));
+  for(let s=0;s<S;s++){
+    let changed = false;
+    for(let i=0;i<dataset.length;i++){
+      const d = dataset[i];
+      const y = d.cls ? 1 : -1;
+      const pred = (w1*d.x1 + w2*d.x2 + bo) >= 0 ? 1 : -1;
+      if(pred !== y){
+        w1 += lr*y*d.x1; w2 += lr*y*d.x2; bo += lr*y;
+        changed = true;
+      }
+    }
+    hist.push({ w1: w1, w2: w2, bo: bo });
+    if(!changed) break;
+  }
+  return { w1: w1, w2: w2, bo: bo, hist: hist };
+}
+
+function runMLP(hidden, epochs){
+  const H = Math.max(2, Math.min(8, Math.round(hidden)));
+  const E = Math.max(1, Math.round(epochs));
+  const rng = mulberry32(2024 + H*13);
+  const W1 = [], B1 = [], W2 = [];
+  let B2 = 0;
+  for(let h=0;h<H;h++){
+    W1.push([ (rng()-0.5)*2.4, (rng()-0.5)*2.4 ]);
+    B1.push((rng()-0.5)*0.6);
+    W2.push((rng()-0.5)*2.4);
+  }
+  const lr = 0.25;
+  for(let e=0;e<E;e++){
+    for(let i=0;i<dataset.length;i++){
+      const x = dataset[i].x1, z = dataset[i].x2;
+      const y = dataset[i].cls ? 1 : 0;
+      const ha = [], dh = [];
+      let zo = B2;
+      for(let h=0;h<H;h++){
+        const zz = W1[h][0]*x + W1[h][1]*z + B1[h];
+        const hh = Math.tanh(zz);
+        ha.push(hh);
+        zo += W2[h]*hh;
+      }
+      const out = sigmoid(zo);
+      const dO = out - y;
+      for(let h=0;h<H;h++){ dh.push(dO*W2[h]*(1 - ha[h]*ha[h])); }
+      for(let h=0;h<H;h++){
+        W1[h][0] -= lr*dh[h]*x;
+        W1[h][1] -= lr*dh[h]*z;
+        B1[h] -= lr*dh[h];
+        W2[h] -= lr*dO*ha[h];
+      }
+      B2 -= lr*dO;
+    }
+  }
+  return function(x, z){
+    let zo = B2;
+    for(let h=0;h<H;h++){ zo += W2[h]*Math.tanh(W1[h][0]*x + W1[h][1]*z + B1[h]); }
+    return sigmoid(zo);
+  };
+}
+
+function pcaAxis(){
+  const n = dataset.length || 1;
+  let mx = 0, mz = 0;
+  for(let i=0;i<dataset.length;i++){ mx += dataset[i].x1; mz += dataset[i].x2; }
+  mx /= n; mz /= n;
+  let cxx = 0, czz = 0, cxz = 0;
+  for(let i=0;i<dataset.length;i++){
+    const a = dataset[i].x1 - mx, b = dataset[i].x2 - mz;
+    cxx += a*a; czz += b*b; cxz += a*b;
+  }
+  cxx /= n; czz /= n; cxz /= n;
+  const ang = 0.5*Math.atan2(2*cxz, cxx - czz);
+  return { mx: mx, mz: mz, ang: ang, cxx: cxx, czz: czz, cxz: cxz };
+}
+
+// ---- per-model 2D state (cached per params + dataset version) ----
+function fieldRes(id){
+  if(id === 'knn') return 44;
+  if(id === 'rf' || id === 'gb' || id === 'mlp') return 64;
+  return 72;
+}
+
+function compute2DState(id, p){
+  const key = id + '|' + JSON.stringify(p) + '|' + dataVersion;
+  if(modelCache[key]) return modelCache[key];
+  const s = {};
+  let f = null;
+
+  if(id === 'logreg'){
+    f = function(x, z){ return sigmoid(p.slope*(x - 0.8*z) + p.bias); };
+  } else if(id === 'nb'){
+    const s2 = p.varScale*p.varScale;
+    f = function(x, z){
+      const ga = Math.exp(-((x-0.9)*(x-0.9) + (z-0.6)*(z-0.6))/(2*s2));
+      const gb = Math.exp(-((x+0.9)*(x+0.9) + (z+0.6)*(z+0.6))/(2*s2));
+      const a = p.prior*ga, b = (1-p.prior)*gb, tot = a + b;
+      return tot < 1e-12 ? 0.5 : a/tot;
+    };
+    s.s2 = s2;
+  } else if(id === 'knn'){
+    const k = Math.max(1, Math.min(15, Math.round(p.k)));
+    const pts = dataset;
+    f = function(x, z){
+      const best = [];
+      for(let i=0;i<pts.length;i++){
+        const dx = pts[i].x1 - x, dz = pts[i].x2 - z;
+        const d = dx*dx + dz*dz;
+        if(best.length < k){
+          best.push({ d: d, c: pts[i].cls });
+          best.sort(function(a,b){ return a.d - b.d; });
+        } else if(d < best[best.length-1].d){
+          best[best.length-1] = { d: d, c: pts[i].cls };
+          best.sort(function(a,b){ return a.d - b.d; });
+        }
+      }
+      let sum = 0;
+      for(let i=0;i<best.length;i++) sum += best[i].c;
+      return best.length ? sum/best.length : 0.5;
+    };
+    s.k = k;
+    s.probe = { x1: p.radiusBias, x2: 0 };
+    s.radius = 0.35 + k*0.1;
+  } else if(id === 'svm'){
+    f = function(x, z){
+      const zz = Math.exp(-(x*x + z*z)/(2*p.sigma*p.sigma));
+      return sigmoid((zz - p.zCut)*14);
+    };
+    s.rCut = p.zCut < 1 ? p.sigma*Math.sqrt(2*Math.log(1/p.zCut)) : 0;
+  } else if(id === 'tree'){
+    s.tree = buildTree(dataset, 0, Math.max(1, Math.round(p.depth)), Math.max(2, Math.round(p.minSplit)));
+    s.splits = [];
+    collectTreeSplits(s.tree, { x0: -CW, y0: -CW, x1: CW, y1: CW }, s.splits);
+    f = function(x, z){ return treePredict(s.tree, x, z); };
+  } else if(id === 'rf'){
+    const B = Math.max(1, Math.round(p.trees));
+    const D = Math.max(1, Math.round(p.depth));
+    const rng = mulberry32(9001 + B*17 + D*3);
+    s.trees = [];
+    for(let b=0;b<B;b++){
+      const sample = [];
+      for(let i=0;i<dataset.length;i++){ sample.push(dataset[Math.floor(rng()*dataset.length)]); }
+      s.trees.push(buildTree(sample, 0, D, 3));
+    }
+    s.B = B; s.D = D;
+    f = function(x, z){
+      let sum = 0;
+      for(let b=0;b<s.trees.length;b++) sum += treePredict(s.trees[b], x, z);
+      return sum/s.trees.length;
+    };
+  } else if(id === 'gb'){
+    const M = Math.max(1, Math.round(p.stages));
+    let pos = 0;
+    for(let i=0;i<dataset.length;i++){ if(dataset[i].cls) pos++; }
+    const p1 = Math.min(0.98, Math.max(0.02, pos/Math.max(1,dataset.length)));
+    let F0 = Math.log(p1/(1-p1));
+    const stages = [];
+    const F = new Float64Array(dataset.length);
+    for(let i=0;i<dataset.length;i++) F[i] = F0;
+    for(let m=0;m<M;m++){
+      const rows = [];
+      for(let i=0;i<dataset.length;i++){
+        rows.push({ x1: dataset[i].x1, x2: dataset[i].x2, r: (dataset[i].cls ? 1 : 0) - sigmoid(F[i]) });
+      }
+      const t = regTree(rows, 0, 2, 3);
+      stages.push(t);
+      for(let i=0;i<dataset.length;i++) F[i] += p.lr*regPredict(t, dataset[i].x1, dataset[i].x2);
+    }
+    s.M = M;
+    f = function(x, z){
+      let acc = F0;
+      for(let m=0;m<stages.length;m++) acc += p.lr*regPredict(stages[m], x, z);
+      return sigmoid(acc);
+    };
+  } else if(id === 'kmeans'){
+    const km = runKMeans(p.k, p.iter);
+    s.centers = km.centers;
+    s.assign = km.assign;
+    s.voronoi = function(x, z){
+      let d1 = Infinity, d2 = Infinity;
+      for(let c=0;c<km.centers.length;c++){
+        const dx = x - km.centers[c].x1, dz = z - km.centers[c].x2;
+        const dd = Math.sqrt(dx*dx + dz*dz);
+        if(dd < d1){ d2 = d1; d1 = dd; } else if(dd < d2){ d2 = dd; }
+      }
+      return d2 - d1;   // ≥ 0, 등고선 = 보로노이 경계
+    };
+  } else if(id === 'dbscan'){
+    const db = runDBSCAN(p.eps, p.minPts);
+    s.labels = db.labels; s.count = db.count;
+    s.core = [];
+    const mp = Math.max(2, Math.round(p.minPts));
+    for(let i=0;i<dataset.length && s.core.length<8;i++){
+      let cnt = 0;
+      for(let j=0;j<dataset.length;j++){
+        const dx = dataset[i].x1 - dataset[j].x1, dz = dataset[i].x2 - dataset[j].x2;
+        if(dx*dx + dz*dz <= p.eps*p.eps) cnt++;
+      }
+      if(cnt >= mp) s.core.push({ x1: dataset[i].x1, x2: dataset[i].x2 });
+    }
+  } else if(id === 'pca'){
+    s.axis = pcaAxis();
+  } else if(id === 'perceptron'){
+    const per = runPerceptron(p.steps, p.lr);
+    s.per = per;
+    f = function(x, z){ return (per.w1*x + per.w2*z + per.bo) >= 0 ? 1 : 0; };
+  } else if(id === 'mlp'){
+    s.H = Math.max(2, Math.round(p.hidden));
+    const pred = runMLP(p.hidden, p.epochs);
+    f = function(x, z){ return pred(x, z); };
+  }
+
+  if(f) s.grid = sampleField(f, fieldRes(id));
+
+  const keys = Object.keys(modelCache);
+  if(keys.length > 90){ for(let i=0;i<keys.length;i++) delete modelCache[keys[i]]; }
+  modelCache[key] = s;
+  return s;
+}
+
+// ---- fill pass ----
+function fillModel2D(V, id, p, isOpt){
+  const ctx = V.ctx;
+  const st = styleFor(isOpt);
+  const tint = isOpt
+    ? { a: 'rgba(22,163,74,0.085)', b: 'rgba(148,163,184,0.045)' }
+    : { a: 'rgba(234,88,12,0.085)', b: 'rgba(148,163,184,0.045)' };
+  const s = compute2DState(id, p);
+
+  if(id === 'ridge'){
+    const rad = Math.max(0.35, 1.5/(1 + p.lam*0.5));
+    ctx.save(); clipPlot(V);
+    ctx.beginPath();
+    if(Math.round(p.norm) === 1){
+      ctx.moveTo(V.sx(0), V.sy(rad));
+      ctx.lineTo(V.sx(rad), V.sy(0));
+      ctx.lineTo(V.sx(0), V.sy(-rad));
+      ctx.lineTo(V.sx(-rad), V.sy(0));
+      ctx.closePath();
+    } else {
+      ctx.arc(V.sx(0), V.sy(0), rad*V.size/(2*CW), 0, Math.PI*2);
+    }
+    ctx.fillStyle = isOpt ? 'rgba(22,163,74,0.16)' : 'rgba(234,88,12,0.16)';
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  if(id === 'kmeans'){
+    const N = 72, step = 2*CW/N;
+    const cw = V.size/N;
+    ctx.save(); clipPlot(V);
+    for(let j=0;j<N;j++){
+      for(let i=0;i<N;i++){
+        const x = -CW + (i+0.5)*step, z = -CW + (j+0.5)*step;
+        let bi = 0, bd = Infinity;
+        for(let c=0;c<s.centers.length;c++){
+          const dx = x - s.centers[c].x1, dz = z - s.centers[c].x2;
+          const dd = dx*dx + dz*dz;
+          if(dd < bd){ bd = dd; bi = c; }
+        }
+        ctx.fillStyle = KM_TINTS[bi % KM_TINTS.length];
+        ctx.fillRect(V.sx(-CW + i*step) - 0.6, V.sy(-CW + (j+1)*step) - 0.6, cw + 1.2, cw + 1.2);
+      }
+    }
+    ctx.restore();
+    return;
+  }
+
+  if(s.grid){
+    fillFromGrid(V, s.grid, tint);
+  }
+  if(!isOpt) ctx.globalAlpha = 1;
+}
+
+// ---- stroke pass ----
+function strokeModel2D(V, id, p, isOpt){
+  const ctx = V.ctx;
+  const st = styleFor(isOpt);
+  const s = compute2DState(id, p);
+
+  if(id === 'linreg'){
+    const levels = [-1.6,-0.8,0,0.8,1.6];
+    for(let i=0;i<levels.length;i++){
+      drawLineAB(V, p.w1, p.w2, levels[i], st, (levels[i] === 0 ? 1 : 0.5));
+    }
+    if(Math.abs(p.w1) + Math.abs(p.w2) > 0.01){
+      const nx = p.w1, nz = p.w2, len = Math.sqrt(nx*nx + nz*nz);
+      const ex = nx/len*0.9, ez = nz/len*0.9;
+      applyStyle(ctx, st, 0.95);
+      ctx.beginPath();
+      ctx.moveTo(V.sx(0), V.sy(0));
+      ctx.lineTo(V.sx(ex), V.sy(ez));
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(V.sx(ex), V.sy(ez), 3.4, 0, Math.PI*2);
+      ctx.fillStyle = st.color; ctx.fill();
+      resetPen(ctx);
+    }
+    return;
+  }
+
+  if(id === 'ridge'){
+    const ols = computeOptimal('linreg');
+    const cx = ols.w1, cy = ols.w2;
+    applyStyle(ctx, st, 0.55);
+    for(let m=1;m<=3;m++){
+      ctx.beginPath();
+      ctx.ellipse(V.sx(cx), V.sy(cy), V.size*0.045*m, V.size*0.028*m, -0.45, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    resetPen(ctx);
+    const rad = Math.max(0.35, 1.5/(1 + p.lam*0.5));
+    applyStyle(ctx, st, 1);
+    ctx.beginPath();
+    if(Math.round(p.norm) === 1){
+      ctx.moveTo(V.sx(0), V.sy(rad));
+      ctx.lineTo(V.sx(rad), V.sy(0));
+      ctx.lineTo(V.sx(0), V.sy(-rad));
+      ctx.lineTo(V.sx(-rad), V.sy(0));
+      ctx.closePath();
+    } else {
+      ctx.arc(V.sx(0), V.sy(0), rad*V.size/(2*CW), 0, Math.PI*2);
+    }
+    ctx.stroke();
+    resetPen(ctx);
+    drawMarker(V, 0, 0, 'cross', '#0F172A', 5);
+    return;
+  }
+
+  if(id === 'nb'){
+    const s2 = p.varScale*p.varScale;
+    applyStyle(ctx, st, 0.5);
+    for(let m=1;m<=2;m++){
+      const rr = Math.sqrt(2*s2*m);
+      const w = rr*V.size/(2*CW);
+      ctx.beginPath(); ctx.arc(V.sx(0.9), V.sy(0.6), w, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(V.sx(-0.9), V.sy(-0.6), w, 0, Math.PI*2); ctx.stroke();
+    }
+    resetPen(ctx);
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
+    return;
+  }
+
+  if(id === 'knn'){
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, isOpt ? 1 : 0.95);
+    drawCircle2D(V, s.probe.x1, s.probe.x2, s.radius, st, 0.95);
+    drawMarker(V, s.probe.x1, s.probe.x2, 'cross', st.color, 6);
+    // highlight the k nearest neighbours of the probe
+    const near = dataset.map(function(d, i){
+      const dx = d.x1 - s.probe.x1, dz = d.x2 - s.probe.x2;
+      return { i: i, d: dx*dx + dz*dz };
+    }).sort(function(a,b){ return a.d - b.d; }).slice(0, s.k);
+    applyStyle(ctx, st, 0.9);
+    near.forEach(function(n){
+      const d = dataset[n.i];
+      ctx.beginPath();
+      ctx.arc(V.sx(d.x1), V.sy(d.x2), 7, 0, Math.PI*2);
+      ctx.stroke();
+    });
+    resetPen(ctx);
+    return;
+  }
+
+  if(id === 'svm'){
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
+    if(s.rCut > 0) drawCircle2D(V, 0, 0, s.rCut, st, 0.7);
+    return;
+  }
+
+  if(id === 'tree'){
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
+    applyStyle(ctx, st, 0.55);
+    s.splits.forEach(function(sp){
+      ctx.beginPath();
+      if(sp.vertical){
+        ctx.moveTo(V.sx(sp.at), V.sy(sp.from));
+        ctx.lineTo(V.sx(sp.at), V.sy(sp.to));
+      } else {
+        ctx.moveTo(V.sx(sp.from), V.sy(sp.at));
+        ctx.lineTo(V.sx(sp.to), V.sy(sp.at));
+      }
+      ctx.stroke();
+    });
+    resetPen(ctx);
+    return;
+  }
+
+  if(id === 'rf' || id === 'gb' || id === 'mlp' || id === 'logreg'){
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
+    return;
+  }
+
+  if(id === 'kmeans'){
+    contourFromGrid(V, sampleField(s.voronoi, 72), 0.02, st, 0.95);
+    s.centers.forEach(function(c){
+      drawMarker(V, c.x1, c.x2, 'diamond', st.color, 7);
+    });
+    return;
+  }
+
+  if(id === 'dbscan'){
+    applyStyle(ctx, st, 0.5);
+    s.core.forEach(function(c){
+      ctx.beginPath();
+      ctx.arc(V.sx(c.x1), V.sy(c.x2), p.eps*V.size/(2*CW), 0, Math.PI*2);
+      ctx.stroke();
+    });
+    resetPen(ctx);
+    return;
+  }
+
+  if(id === 'pca'){
+    const a = p.angle*Math.PI/180;
+    const ux = Math.cos(a), uz = Math.sin(a);
+    const ax = s.axis;
+    // projection sticks + projected points
+    ctx.save();
+    clipPlot(V);
+    dataset.forEach(function(d, di){
+      if(di % 3 !== 0) return;
+      const vx = d.x1 - ax.mx, vz = d.x2 - ax.mz;
+      const dot = vx*ux + vz*uz;
+      const px = ax.mx + dot*ux, pz = ax.mz + dot*uz;
+      applyStyle(ctx, st, 0.2*(p.proj === undefined ? 0.5 : p.proj) + 0.06);
+      ctx.beginPath();
+      ctx.moveTo(V.sx(d.x1), V.sy(d.x2));
+      ctx.lineTo(V.sx(px), V.sy(pz));
+      ctx.stroke();
+      resetPen(ctx);
+      if(p.proj > 0.05){
+        ctx.beginPath();
+        ctx.arc(V.sx(px), V.sy(pz), 3.2, 0, Math.PI*2);
+        ctx.fillStyle = st.color;
+        ctx.globalAlpha = Math.min(1, 0.35 + p.proj*0.65);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    });
+    ctx.restore();
+    drawLineAB(V, -uz, ux, -uz*ax.mx + ux*ax.mz, st, 1);
+    applyStyle(ctx, st, 0.55);
+    ctx.beginPath();
+    ctx.moveTo(V.sx(ax.mx - uz*2.4), V.sy(ax.mz + ux*2.4));
+    ctx.lineTo(V.sx(ax.mx + uz*2.4), V.sy(ax.mz - ux*2.4));
+    ctx.stroke();
+    resetPen(ctx);
+    drawMarker(V, ax.mx, ax.mz, 'dot', '#0F172A', 4);
+    return;
+  }
+
+  if(id === 'perceptron'){
+    const h = s.per.hist;
+    for(let i=0;i<h.length-1;i+=Math.max(1, Math.floor(h.length/6))){
+      drawLineAB(V, h[i].w1, h[i].w2, -h[i].bo, st, 0.18);
+    }
+    if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
+    drawLineAB(V, s.per.w1, s.per.w2, -s.per.bo, st, 1);
+    return;
+  }
+
+  if(id === 'gd'){
+    // loss contours J(x,z) = 0.7x^2 + 1.1z^2
+    const levels = [0.4, 1.2, 2.4, 4.0, 6.0];
+    ctx.strokeStyle = '#94A3B8'; ctx.lineWidth = 1.2; ctx.setLineDash(isOpt ? [] : [5,4]); ctx.globalAlpha = 0.5;
+    for(let i=0;i<levels.length;i++){
+      const L = levels[i];
+      const rx = Math.sqrt(L/0.7)*V.size/(2*CW);
+      const rz = Math.sqrt(L/1.1)*V.size/(2*CW);
+      ctx.beginPath();
+      ctx.ellipse(V.sx(0), V.sy(0), rx, rz, 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    resetPen(ctx);
+    let x = 1.9, z = 1.6;
+    const traj = [{ x1: x, x2: z }];
+    const steps = Math.max(1, Math.round(p.steps));
+    for(let i=0;i<steps;i++){
+      x -= p.lr*1.4*x; z -= p.lr*2.2*z;
+      traj.push({ x1: x, x2: z });
+      if(Math.abs(x) > 8 || Math.abs(z) > 8) break;
+    }
+    applyStyle(ctx, st, 1);
+    ctx.beginPath();
+    ctx.moveTo(V.sx(traj[0].x1), V.sy(traj[0].x2));
+    for(let i=1;i<traj.length;i++) ctx.lineTo(V.sx(traj[i].x1), V.sy(traj[i].x2));
+    ctx.stroke();
+    resetPen(ctx);
+    drawMarker(V, traj[0].x1, traj[0].x2, 'dot', '#64748B', 4);
+    drawMarker(V, traj[traj.length-1].x1, traj[traj.length-1].x2, 'dot', st.color, 6);
+    drawMarker(V, 0, 0, 'cross', '#0F172A', 5);
+    return;
+  }
+
+  if(id === 'attn'){
+    const n = 5;
+    const f = Math.max(0, Math.min(4, Math.round(p.focus)));
+    const xs = [-2.2, -1.1, 0, 1.1, 2.2];
+    const score = [];
+    let mx = -Infinity;
+    for(let j=0;j<n;j++){
+      const sv = (j === f) ? 0 : -Math.abs(j - f)/Math.max(0.2, p.temp);
+      score.push(sv); if(sv > mx) mx = sv;
+    }
+    let tot = 0;
+    for(let j=0;j<n;j++){ score[j] = Math.exp(score[j]-mx); tot += score[j]; }
+    for(let j=0;j<n;j++){ score[j] = score[j]/tot; }
+    applyStyle(ctx, st, 0.9);
+    for(let j=0;j<n;j++){
+      if(j === f) continue;
+      const w = score[j];
+      ctx.lineWidth = 1.5 + w*9;
+      ctx.globalAlpha = 0.3 + w*0.7;
+      ctx.beginPath();
+      ctx.moveTo(V.sx(xs[f]), V.sy(-1.72));
+      const lift = 0.6 + w*1.7;
+      ctx.quadraticCurveTo(V.sx((xs[f]+xs[j])/2), V.sy(-1.72 + lift), V.sx(xs[j]), V.sy(-1.72));
+      ctx.stroke();
+    }
+    resetPen(ctx);
+    for(let j=0;j<n;j++){
+      const bx = V.sx(xs[j]), by = V.sy(-1.9);
+      ctx.fillStyle = (j === f) ? '#2563EB' : '#64748B';
+      ctx.fillRect(bx-16, by-11, 32, 22);
+      ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('t'+(j+1), bx, by+4);
+      ctx.fillStyle = '#475569'; ctx.fillText(score[j].toFixed(2), bx, by+34);
+    }
+    ctx.textAlign = 'left';
+    return;
+  }
+}
+
+function modelShowsPoints(id){
+  return (id !== 'ridge' && id !== 'gd' && id !== 'attn');
+}
+
+function modelCaption(id, p, isOpt){
+  if(id === 'linreg') return '회귀면 등고선 w₁x₁+w₂x₂=c (화살표 = 기울기 방향)';
+  if(id === 'ridge') return '계수 공간(β₁, β₂) · RSS 타원 + ‖w‖ₚ≤t 제약 영역';
+  if(id === 'logreg') return '시그모이드 확률면의 0.5 결정 경계';
+  if(id === 'nb') return '가우시안 1σ·2σ 등고선 + 사후확률 0.5 경계';
+  if(id === 'knn') return 'k=' + Math.max(1, Math.round(p.k)) + ' 이웃 투표 영역 · 십자 = 탐색 중심 · 원 = 탐색 반경';
+  if(id === 'svm') return 'RBF 커널 격상 z(x)=exp(−‖x‖²/2σ²) 의 z_cut 등고선';
+  if(id === 'tree') return '축 평행 분할 (depth=' + Math.max(1,Math.round(p.depth)) + ', minSplit=' + Math.max(2,Math.round(p.minSplit)) + ')';
+  if(id === 'rf') return 'B=' + Math.max(1,Math.round(p.trees)) + ' 트리 부트스트랩 평균 경계';
+  if(id === 'gb') return 'm=' + Math.max(1,Math.round(p.stages)) + ' 단계 잔차 보정 경계 (ν=' + p.lr + ')';
+  if(id === 'kmeans') return '보로노이 영역 분할 · ◆ = 중심점 (K=' + Math.max(2,Math.round(p.k)) + ')';
+  if(id === 'dbscan') return 'ε 원 = 밀도 반경 · 회색 빈 점 = 노이즈';
+  if(id === 'pca') return '주성분 축 + 각 점의 정사영 (투영비율 ' + Math.round((p.proj === undefined ? 0.5 : p.proj)*100) + '%)';
+  if(id === 'perceptron') return '결정 직선 w·x+b=0 과 학습 궤적(옅은 선)';
+  if(id === 'gd') return '손실 등고선 J=0.7x²+1.1y² 위의 하강 궤적 (α=' + p.lr + ')';
+  if(id === 'mlp') return '은닉 ' + Math.max(2,Math.round(p.hidden)) + '개 MLP 의 비선형 결정 경계';
+  if(id === 'attn') return '기준 토큰 t' + (Math.round(p.focus)+1) + ' 의 softmax 어텐션 아크 (τ=' + p.temp + ')';
+  return '';
+}
+
+function render2DPane(canvas, mode){
+  if(!canvas || !activeModel) return;
+  if(canvas.clientWidth < 20 || canvas.clientHeight < 20) return;
+  const V = makeView(canvas);
+  canvasViews[canvas.id] = V;
+  const id = activeModel.id;
+  const ctx = V.ctx;
+  draw2DBackdrop(V);
+
+  const primaryIsOpt = (mode !== 'manual');
+  const primaryParams = primaryIsOpt ? optimalParams : manualParams;
+
+  // 1) region fill (primary model only)
+  ctx.save(); clipPlot(V);
+  fillModel2D(V, id, primaryParams, primaryIsOpt);
+  ctx.restore();
+
+  // 2) data points
+  let colorFn = null;
+  if(id === 'dbscan'){
+    const ds = compute2DState(id, primaryParams);
+    colorFn = function(d, i){
+      const lab = ds.labels[i];
+      if(lab === -2) return 'noise';
+      return CLUSTER_COLORS[lab % CLUSTER_COLORS.length];
+    };
+  }
+  if(modelShowsPoints(id)) drawPoints2D(V, colorFn);
+
+  // 3) model lines / markers
+  ctx.save(); clipPlot(V);
+  if(mode === 'both'){
+    strokeModel2D(V, id, manualParams, false);
+    strokeModel2D(V, id, optimalParams, true);
+  } else if(mode === 'manual'){
+    strokeModel2D(V, id, manualParams, false);
+  } else {
+    strokeModel2D(V, id, optimalParams, true);
+  }
+  ctx.restore();
+
+  drawCaption(V, modelCaption(id, primaryParams, primaryIsOpt));
+}
+
+let render2DRaf = null;
+function schedule2DRender(){
+  if(view3D || render2DRaf) return;
+  render2DRaf = requestAnimationFrame(function(){
+    render2DRaf = null;
+    render2DAll();
+  });
+}
+
+function render2DAll(){
+  if(!activeModel || view3D) return;
+  const left = document.getElementById('c2d-left');
+  const right = document.getElementById('c2d-right');
+  if(viewMode === 'split'){
+    render2DPane(left, 'manual');
+    render2DPane(right, 'optimal');
+  } else if(viewMode === 'manual'){
+    render2DPane(left, 'manual');
+  } else if(viewMode === 'optimal'){
+    render2DPane(left, 'optimal');
+  } else {
+    render2DPane(left, 'both');
+  }
+}
+// ===================== 8. UI INTERACTION, SCOREBOARD & MOTION =====================
+let mqReduce = (window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null);
+let reducedMotion = !!(mqReduce && mqReduce.matches);
+if(mqReduce){
+  if(mqReduce.addEventListener){
+    mqReduce.addEventListener('change', function(e){ reducedMotion = e.matches; });
+  } else if(mqReduce.addListener){
+    mqReduce.addListener(function(e){ reducedMotion = e.matches; });
+  }
+}
+
+let scoreNums = { m: null, o: null };
+let auxBar = { m: 0, o: 0 };
+let auxToken = 0;
+let morphToken = 0;
+
+function cancelMorph(){
+  morphToken++;
+  renderScoreboard = true;
+}
+
+function openDetail(id) {
+  activeModel = MODELS.find(function(m){ return m.id === id; });
+  manualParams = {};
+  activeModel.params.forEach(function(p){ manualParams[p.key] = p.val; });
+  optimalParams = computeOptimal(id);
+  scoreNums = { m: null, o: null };
+
+  document.getElementById('grid-view').style.display = 'none';
+  const dv = document.getElementById('detail-view');
+  dv.style.display = 'grid';
+  dv.classList.remove('animate-in');
+  if(!reducedMotion){
+    void dv.offsetWidth;
+    dv.classList.add('animate-in');
+  }
+
+  document.getElementById('detail-title').textContent = '#' + activeModel.num + ' ' + activeModel.name;
+  document.getElementById('detail-cat').textContent = activeModel.catName;
+  document.getElementById('detail-summary').textContent = activeModel.summary;
+  try { katex.render(activeModel.tex, document.getElementById('detail-formula'), {throwOnError:false}); } catch(e){}
+
+  buildSliders();
+  if(view3D) initThree();
+  setViewMode('overlay');
+  setTimeout(function(){
+    if(view3D) resizeThree();
+    else schedule2DRender();
+  }, 40);
+}
+
+function buildSliders() {
+  const wrap = document.getElementById('sliders-container');
+  wrap.innerHTML = '';
+  activeModel.params.forEach(function(p){
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = ''
+      + '<div class="slider-label">'
+      +   '<span>' + p.label + '</span>'
+      +   '<span class="slider-val tabular" id="sv-' + p.key + '">' + manualParams[p.key] + '</span>'
+      + '</div>'
+      + '<input type="range" id="sl-' + p.key + '" min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" value="' + manualParams[p.key] + '" />';
+    wrap.appendChild(row);
+    document.getElementById('sl-' + p.key).addEventListener('input', function(e){
+      cancelMorph();
+      manualParams[p.key] = parseFloat(e.target.value);
+      document.getElementById('sv-' + p.key).textContent = manualParams[p.key];
+      updateScenes();
+    });
+  });
+}
+
+// ── Auto-Fit bug fix: never overwrite manualParams; only refresh optimalParams ──
+function runAutoFit() {
+  if(!activeModel) return;
+  const next = computeOptimal(activeModel.id);
+  let switched = false;
+  if(viewMode === 'manual'){
+    setViewMode('overlay');
+    switched = true;
+  }
+  morphOptimal(next, switched);
+}
+
+// ── Motion rule 2b: optimal model morphs over 0.35s ease-out (skipped when reduced) ──
+function morphOptimal(target, switched){
+  if(!activeModel) return;
+  const from = Object.assign({}, optimalParams);
+  const keys = [];
+  Object.keys(target).forEach(function(k){
+    if(typeof target[k] === 'number' && typeof from[k] === 'number') keys.push(k);
+    else optimalParams[k] = target[k];
+  });
+  if(reducedMotion || !keys.length){
+    optimalParams = Object.assign({}, target);
+    renderScoreboard = true;
+    updateScenes();
+    return;
+  }
+  const myTok = ++morphToken;
+  const t0 = performance.now();
+  const dur = 350;
+  renderScoreboard = false;
+  function step(){
+    if(myTok !== morphToken) return;
+    const t = Math.min(1, (performance.now() - t0)/dur);
+    const e = 1 - Math.pow(1 - t, 3);
+    keys.forEach(function(k){ optimalParams[k] = from[k] + (target[k] - from[k])*e; });
+    updateScenes();
+    if(t < 1){
+      requestAnimationFrame(step);
+    } else {
+      optimalParams = Object.assign({}, target);
+      renderScoreboard = true;
+      updateScenes();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  document.querySelectorAll('#view-mode-tabs .btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  const pR = document.getElementById('pane-right');
+  const p2R = document.getElementById('pane2d-right');
+  const showSplit = (mode === 'split');
+  if(pR) pR.style.display = showSplit ? 'block' : 'none';
+  if(p2R) p2R.style.display = showSplit ? 'block' : 'none';
+  updateBadges();
+  if(view3D) resizeThree();
+  updateScenes();
+}
+
+function updateBadges(){
+  const bL = document.getElementById('badge-left');
+  const b2L = document.getElementById('badge-2d-left');
+  let text = '';
+  if(viewMode === 'overlay') text = '수동(주황) + 최적(초록)';
+  else if(viewMode === 'manual') text = '수동 모델 (주황)';
+  else if(viewMode === 'optimal') text = '✨ 최적 모델 (초록)';
+  else text = '수동 모델 (Manual)';
+  if(bL){ bL.textContent = text; bL.className = 'pane-badge ' + (viewMode === 'optimal' ? 'optimal' : 'manual'); }
+  if(b2L){ b2L.textContent = text; b2L.className = 'pane-badge ' + (viewMode === 'optimal' ? 'optimal' : 'manual'); }
+}
+
+document.getElementById('view-mode-tabs').addEventListener('click', function(e){
+  if(e.target.dataset.mode) setViewMode(e.target.dataset.mode);
+});
+
+// ── 3D ↔ 2D switch (keeps the same dataset, params and compare mode) ──
+function setView3D(on){
+  view3D = on;
+  document.getElementById('stage-3d').style.display = on ? 'flex' : 'none';
+  document.getElementById('stage-2d').style.display = on ? 'none' : 'flex';
+  document.querySelectorAll('#view-toggle button').forEach(function(b){
+    b.classList.toggle('active', (b.dataset.view === '3d') === on);
+  });
+  if(on){
+    initThree();
+    setTimeout(resizeThree, 30);
+  } else {
+    setTimeout(function(){ render2DAll(); }, 20);
+  }
+  updateBadges();
+  if(activeModel) updateScenes();
+}
+
+// ── dataset presets / reset / click-to-add points ──
+function setDataset(type) {
+  currentDatasetType = type;
+  dataset = generateData(type);
+  addedPoints = [];
+  dataVersion++;
+  if(activeModel){
+    optimalParams = computeOptimal(activeModel.id);
+    renderScoreboard = true;
+    updateScenes();
+  }
+}
+
+function resetData(){
+  dataset = generateData(currentDatasetType);
+  addedPoints = [];
+  dataVersion++;
+  if(activeModel){
+    optimalParams = computeOptimal(activeModel.id);
+    renderScoreboard = true;
+    updateScenes();
+  }
+}
+
+function addPointAtWorld(x, y, cls){
+  if(Math.abs(x) > CW || Math.abs(y) > CW) return;
+  const pt = { x1: x, x2: y, y: cls ? 1.0 : -1.0, cls: cls, added: true };
+  dataset.push(pt);
+  addedPoints.push(pt);
+  dataVersion++;
+  if(activeModel){
+    optimalParams = computeOptimal(activeModel.id);
+    renderScoreboard = true;
+    updateScenes();
+  }
+}
+
+function toggleAddMode(mode){
+  addMode = (addMode === mode) ? null : mode;
+  const a = document.getElementById('btn-add-a');
+  const b = document.getElementById('btn-add-b');
+  if(a) a.classList.toggle('active', addMode === 'A');
+  if(b) b.classList.toggle('active', addMode === 'B');
+  const hint = document.getElementById('add-hint');
+  if(hint) hint.textContent = addMode ? ('클릭 = ' + addMode + ' 점') : '점 추가';
+}
+
+function bind2DCanvas(canvas){
+  if(!canvas) return;
+  canvas.addEventListener('click', function(e){
+    if(!addMode || !activeModel || view3D) return;
+    const V = canvasViews[canvas.id];
+    if(!V) return;
+    const rect = canvas.getBoundingClientRect();
+    const w = V.inv(e.clientX - rect.left, e.clientY - rect.top);
+    addPointAtWorld(w.x1, w.x2, addMode === 'A' ? 1 : 0);
+  });
+}
+bind2DCanvas(document.getElementById('c2d-left'));
+bind2DCanvas(document.getElementById('c2d-right'));
+
+function closeDetail() {
+  document.getElementById('detail-view').style.display = 'none';
+  document.getElementById('grid-view').style.display = 'block';
+  activeModel = null;
+  renderGrid(activeCatFilter);
+}
+
+function runScenario(type) {
+  if(type === 'svm') { setDataset('circle'); openDetail('svm'); setViewMode('overlay'); }
+  if(type === 'tree') { setDataset('moon'); openDetail('tree'); setViewMode('split'); }
+  if(type === 'gd') { setDataset('linear'); openDetail('gd'); setViewMode('overlay'); }
+}
+
+// ── scoreboard with count-up (0.4s ease-out, tabular-nums) ──
+function setScoreCell(el, key, str){
+  if(!el) return;
+  const m = /^(-?\d+(?:\.\d+)?)(.*)$/.exec(String(str).trim());
+  if(!m){ el.textContent = str; scoreNums[key] = null; return; }
+  const to = parseFloat(m[1]);
+  const suffix = m[2];
+  const from = (scoreNums[key] === null) ? to : scoreNums[key];
+  scoreNums[key] = to;
+  const dec = (m[1].split('.')[1] || '').length;
+  if(reducedMotion || from === to){ el.textContent = str; return; }
+  const myTok = (el._tok || 0) + 1;
+  el._tok = myTok;
+  const t0 = performance.now();
+  function tick(){
+    if(el._tok !== myTok) return;
+    const t = Math.min(1, (performance.now() - t0)/400);
+    const e = 1 - Math.pow(1 - t, 3);
+    el.textContent = (from + (to - from)*e).toFixed(dec) + suffix;
+    if(t < 1) requestAnimationFrame(tick);
+    else el.textContent = str;
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateScoreboardAndAux() {
+  if(!activeModel) return;
+  const mScore = evalModelMetric(activeModel.id, manualParams);
+  const oScore = evalModelMetric(activeModel.id, optimalParams);
+  const tbody = document.getElementById('score-tbody');
+  tbody.innerHTML = ''
+    + '<tr><td>' + mScore.name + '</td><td class="val-manual" id="sc-m-val"></td><td class="val-opt" id="sc-o-val"></td></tr>'
+    + '<tr><td>파라미터 값</td><td class="val-manual" id="sc-m-par"></td><td class="val-opt" id="sc-o-par"></td></tr>';
+  setScoreCell(document.getElementById('sc-m-val'), 'm', mScore.val);
+  setScoreCell(document.getElementById('sc-o-val'), 'o', oScore.val);
+  const mPar = document.getElementById('sc-m-par');
+  const oPar = document.getElementById('sc-o-par');
+  if(mPar) mPar.textContent = mScore.pText;
+  if(oPar) oPar.textContent = oScore.pText;
+
+  const mVal = Math.abs(parseFloat(mScore.val)) || 0;
+  const oVal = Math.abs(parseFloat(oScore.val)) || 0;
+  animateAux(mVal, oVal, mScore.name);
+}
+
+function animateAux(toM, toO, label){
+  const from = { m: auxBar.m, o: auxBar.o };
+  const myTok = ++auxToken;
+  if(reducedMotion || (Math.abs(toM - from.m) < 1e-9 && Math.abs(toO - from.o) < 1e-9)){
+    auxBar = { m: toM, o: toO };
+    drawAux(label);
+    return;
+  }
+  const t0 = performance.now();
+  function step(){
+    if(myTok !== auxToken) return;
+    const t = Math.min(1, (performance.now() - t0)/400);
+    const e = 1 - Math.pow(1 - t, 3);
+    auxBar = { m: from.m + (toM - from.m)*e, o: from.o + (toO - from.o)*e };
+    drawAux(label);
+    if(t < 1) requestAnimationFrame(step);
+    else { auxBar = { m: toM, o: toO }; drawAux(label); }
+  }
+  requestAnimationFrame(step);
+}
+
+function drawAux(label){
+  const c = document.getElementById('aux-canvas');
+  if(!c) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = c.clientWidth || 320, h = c.clientHeight || 150;
+  c.width = Math.max(1, Math.round(w*dpr));
+  c.height = Math.max(1, Math.round(h*dpr));
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#64748B'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText((label || '') + ' 비교', 12, 20);
+  const maxV = Math.max(auxBar.m, auxBar.o, 1)*1.2;
+  function bar(y, lab, val, col){
+    const bw = Math.max(4, Math.min(w - 120, (val/maxV)*(w - 130)));
+    ctx.fillStyle = '#334155'; ctx.fillText(lab, 12, y + 15);
+    ctx.fillStyle = col; ctx.fillRect(72, y, bw, 22);
+    ctx.fillStyle = '#0F172A'; ctx.fillText(val.toFixed(2), 76 + bw, y + 15);
+  }
+  bar(42, '수동', auxBar.m, '#EA580C');
+  bar(82, '최적', auxBar.o, '#16A34A');
+}
+
+window.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && activeModel) closeDetail();
+});
+
+let resizeRaf = null;
+window.addEventListener('resize', function(){
+  if(resizeRaf) return;
+  resizeRaf = requestAnimationFrame(function(){
+    resizeRaf = null;
+    if(view3D) resizeThree();
+    else schedule2DRender();
+  });
+});
+
+renderGrid('all');
+</script>
+</body>
+</html>
