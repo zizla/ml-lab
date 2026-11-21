@@ -2801,7 +2801,9 @@ function closeDetail() {
 
 function runScenario(type) {
   if(type === 'svm') { setDataset('circle'); openDetail('svm'); setViewMode('overlay'); }
-  if(type === 'tree') { setDataset('moon'); openDetail('tree'); setViewMode('split'); }
+  // 시연②는 과적합이 실제로 드러나는 데이터(라벨 잡음이 섞인 '이상치')를 쓴다.
+  // 깊이 5는 잡음 점을 외워 5-fold 일반화 Acc가 떨어지고, 최적 깊이는 훈련/일반화 격차가 작다.
+  if(type === 'tree') { setDataset('outlier'); openDetail('tree'); setViewMode('split'); }
   if(type === 'gd') { setDataset('linear'); openDetail('gd'); setViewMode('overlay'); }
 }
 
