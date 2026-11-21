@@ -2321,7 +2321,8 @@ function drawAux(label){
   ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#64748B'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText((label || '') + ' 비교', 12, 20);
-  const maxV = Math.max(auxBar.m, auxBar.o, 1)*1.2;
+  const peak = Math.max(auxBar.m, auxBar.o);
+  const maxV = (peak > 1e-6 ? peak : 1)*1.15;
   function bar(y, lab, val, col){
     const bw = Math.max(4, Math.min(w - 120, (val/maxV)*(w - 130)));
     ctx.fillStyle = '#334155'; ctx.fillText(lab, 12, y + 15);
