@@ -399,7 +399,7 @@ const MODELS = [
     params:[{key:'slope',label:'기울기 강도 w',min:0.3,max:5,step:0.1,val:0.8},{key:'bias',label:'절편 b',min:-2,max:2,step:0.1,val:0.8}] },
   { id:'nb', num:4, cat:'linear', catName:'지도·회귀', name:'Naive Bayes',
     tex:'P(c|x)\\propto P(c)\\prod P(x_i|c)', summary:'각 클래스의 가우시안 확률 밀도 봉우리(3D 종형 곡면)를 비교해 사후 확률을 계산합니다.',
-    params:[{key:'varScale',label:'분산 스케일 σ',min:0.3,max:2.5,step:0.05,val:1.8},{key:'prior',label:'사전확률 P(A)',min:0.1,max:0.9,step:0.05,val:0.75}] },
+    params:[{key:'varScale',label:'분산 스케일 σ',min:0.3,max:2.5,step:0.05,val:1.0},{key:'prior',label:'사전확률 P(A)',min:0.1,max:0.9,step:0.05,val:0.5}] },
   { id:'knn', num:5, cat:'tree', catName:'거리·경계·트리', name:'K-Nearest Neighbors',
     tex:'D(x_1,x_2)=\\sqrt{\\sum (x_{1i}-x_{2i})^2}', summary:'테스트 점 주변 가장 가까운 k개 이웃을 3D 거리 구로 탐색해 다수결로 분류합니다.',
     params:[{key:'k',label:'이웃 수 k',min:1,max:15,step:2,val:1},{key:'radiusBias',label:'탐색 중심 이동',min:-1.5,max:1.5,step:0.1,val:0.0}] },
@@ -709,80 +709,652 @@ function clearGroup(g) {
 }
 
 // ===================== 5. ALGORITHMS & AUTO-FIT OPTIMIZER =====================
+// ── 원칙: 스코어보드의 모든 지표는 "현재 dataset 을 실제로 예측"해 계산한다.
+//    고정값·근사식 없음. 그림(2D/3D)과 지표가 같은 함수를 쓰도록 공용 헬퍼로 뽑았다.
+//      · 분류: 실제 예측 Accuracy(%)   · 회귀: 실제 잔차 MSE
+//      · tree / gb: 5-fold 교차검증 일반화 Acc  (깊이가 과하면 과적합이 수치로 드러남)
+//      · rf: OOB(Out-Of-Bag) Acc        · kmeans / dbscan: 실제 배정의 Silhouette
+//    무거운 계산은 (모델|파라미터|데이터버전) 키로 캐시 → 슬라이더 드래그에도 즉시 갱신.
+const metricCache = {};
+const optimalCache = {};
+const fitCache = {};
+
+function cachePut(store, key, val, limit){
+  store[key] = val;
+  const ks = Object.keys(store);
+  const lim = limit || 120;
+  if(ks.length > lim){
+    for(let i=0;i<ks.length; i++){
+      delete store[ks[i]];
+      if(Object.keys(store).length <= Math.floor(lim*0.7)) break;
+    }
+  }
+  return val;
+}
+
+// ---- 공통: 실제 데이터 분류 정확도 ----
+function classAccuracy(pred){
+  const n = dataset.length;
+  if(!n) return 0;
+  let ok = 0;
+  for(let i=0;i<n;i++){ if(pred(dataset[i]) === dataset[i].cls) ok++; }
+  return ok/n*100;
+}
+
+// ---- (1) Gaussian Naive Bayes — 클래스별 평균·분산을 dataset 에서 실제로 적합 ----
+//      (렌더링·스코어보드가 같은 사후확률 식을 쓴다)
+function nbFit(){
+  const key = 'nbfit|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key]) return fitCache[key];
+  let nA = 0, nB = 0, ax = 0, az = 0, bx = 0, bz = 0;
+  for(let i=0;i<dataset.length;i++){
+    const d = dataset[i];
+    if(d.cls){ nA++; ax += d.x1; az += d.x2; } else { nB++; bx += d.x1; bz += d.x2; }
+  }
+  const mA = nA ? { x1: ax/nA, x2: az/nA } : { x1: 0.9, x2: 0.6 };
+  const mB = nB ? { x1: bx/nB, x2: bz/nB } : { x1: -0.9, x2: -0.6 };
+  let vA = 0, vB = 0;
+  for(let i=0;i<dataset.length;i++){
+    const d = dataset[i];
+    if(d.cls) vA += (d.x1-mA.x1)*(d.x1-mA.x1) + (d.x2-mA.x2)*(d.x2-mA.x2);
+    else      vB += (d.x1-mB.x1)*(d.x1-mB.x1) + (d.x2-mB.x2)*(d.x2-mB.x2);
+  }
+  vA = nA > 1 ? vA/(nA-1)/2 : 0;   // 두 축 평균 → 등방 공통 분산
+  vB = nB > 1 ? vB/(nB-1)/2 : 0;
+  const v = Math.max(0.02, (vA*nA + vB*nB)/Math.max(1, nA+nB));
+  return cachePut(fitCache, key, { mA: mA, mB: mB, v: v, nA: nA, nB: nB }, 60);
+}
+function nbPosterior(x1, x2, varScale, prior){
+  const f = nbFit();
+  const s2 = Math.max(1e-6, f.v*varScale*varScale);
+  const da = (x1-f.mA.x1)*(x1-f.mA.x1) + (x2-f.mA.x2)*(x2-f.mA.x2);
+  const db = (x1-f.mB.x1)*(x1-f.mB.x1) + (x2-f.mB.x2)*(x2-f.mB.x2);
+  const a = prior*Math.exp(-da/(2*s2)), b = (1-prior)*Math.exp(-db/(2*s2)), tot = a + b;
+  return tot < 1e-12 ? 0.5 : a/tot;
+}
+function nbAccuracy(varScale, prior){
+  return classAccuracy(function(d){ return nbPosterior(d.x1, d.x2, varScale, prior) >= 0.5 ? 1 : 0; });
+}
+
+// ---- (2) kNN 이웃 투표 — skipIdx 로 자기 자신을 빼면 Leave-One-Out 평가 ----
+function knnVote(x1, x2, k, skipIdx){
+  const n = dataset.length;
+  if(n < 2) return 0.5;
+  const kk = Math.max(1, Math.min(n - 1, Math.round(k)));
+  const best = [];
+  for(let i=0;i<n;i++){
+    if(i === skipIdx) continue;
+    const dx = dataset[i].x1 - x1, dz = dataset[i].x2 - x2;
+    const d = dx*dx + dz*dz;
+    if(best.length < kk){
+      best.push({ d: d, c: dataset[i].cls });
+      best.sort(function(a,b){ return a.d - b.d; });
+    } else if(d < best[best.length-1].d){
+      best[best.length-1] = { d: d, c: dataset[i].cls };
+      best.sort(function(a,b){ return a.d - b.d; });
+    }
+  }
+  if(!best.length) return 0.5;
+  let votes = 0;
+  for(let i=0;i<best.length;i++) votes += best[i].c;
+  return votes/best.length;
+}
+function knnLOOAccuracy(k){
+  const n = dataset.length;
+  if(n < 2) return 0;
+  let ok = 0;
+  for(let i=0;i<n;i++){
+    const pred = knnVote(dataset[i].x1, dataset[i].x2, k, i) >= 0.5 ? 1 : 0;
+    if(pred === dataset[i].cls) ok++;
+  }
+  return ok/n*100;
+}
+
+// ---- (3) Perceptron: 실제 학습된 가중치로 분류 ----
+function perceptronAccuracy(steps, lr){
+  const w = runPerceptron(steps, lr);
+  return classAccuracy(function(d){ return (w.w1*d.x1 + w.w2*d.x2 + w.bo) >= 0 ? 1 : 0; });
+}
+
+// ---- (4) MLP: 실제 학습된 네트워크로 분류 (학습 결과는 캐시) ----
+function mlpPredictor(hidden, epochs){
+  const H = Math.max(2, Math.min(8, Math.round(hidden)));
+  const E = Math.max(1, Math.round(epochs));
+  const key = H + '|' + E + '|' + dataVersion + '|' + dataset.length;
+  if(!fitCache['mlp|' + key]) fitCache['mlp|' + key] = runMLP(H, E);
+  return fitCache['mlp|' + key];
+}
+function mlpAccuracy(hidden, epochs){
+  const pred = mlpPredictor(hidden, epochs);
+  return classAccuracy(function(d){ return pred(d.x1, d.x2) >= 0.5 ? 1 : 0; });
+}
+
+// ---- (5) K-fold 교차검증 (tree·gb 의 일반화 정확도) ----
+function kFoldAccuracy(K, fitFn, predFn){
+  const n = dataset.length;
+  let ok = 0, tot = 0;
+  const train = [], test = [];
+  for(let f=0;f<K;f++){
+    train.length = 0; test.length = 0;
+    for(let i=0;i<n;i++){ if((i % K) === f) test.push(dataset[i]); else train.push(dataset[i]); }
+    if(!train.length || !test.length) continue;
+    const model = fitFn(train, f);
+    for(let i=0;i<test.length;i++){
+      const d = test[i];
+      if(predFn(model, d) === d.cls) ok++;
+      tot++;
+    }
+  }
+  return tot ? ok/tot*100 : 0;
+}
+
+// ---- (6) Decision Tree: 5-fold CV 일반화 정확도 (+ 훈련 정확도로 과적합 확인) ----
+function treeTrainAccuracy(depth, minSplit){
+  const D = Math.max(1, Math.round(depth)), MS = Math.max(2, Math.round(minSplit));
+  const key = 'treetr|' + D + '|' + MS + '|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key] !== undefined) return fitCache[key];
+  const t = buildTree(dataset, 0, D, MS);
+  const v = classAccuracy(function(d){ return treePredict(t, d.x1, d.x2) >= 0.5 ? 1 : 0; });
+  return cachePut(fitCache, key, v, 400);
+}
+function treeCVAccuracy(depth, minSplit, K){
+  const D = Math.max(1, Math.round(depth)), MS = Math.max(2, Math.round(minSplit));
+  const kk = K || 5;
+  const key = 'treecv|' + D + '|' + MS + '|' + kk + '|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key] !== undefined) return fitCache[key];
+  const v = kFoldAccuracy(kk,
+    function(tr){ return buildTree(tr, 0, D, MS); },
+    function(t, d){ return treePredict(t, d.x1, d.x2) >= 0.5 ? 1 : 0; });
+  return cachePut(fitCache, key, v, 400);
+}
+
+// ---- (7) Random Forest: 5-fold CV 일반화 정확도 (부트스트랩 숲을 fold 마다 학습) ----
+function rfCVAccuracy(trees, depth, K){
+  const B = Math.max(1, Math.round(trees)), D = Math.max(1, Math.round(depth));
+  const kk = K || 5;
+  const key = 'rfcv|' + B + '|' + D + '|' + kk + '|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key] !== undefined) return fitCache[key];
+  const v = kFoldAccuracy(kk,
+    function(tr){
+      const rng = mulberry32(9001 + B*17 + D*3);   // 2D 렌더링과 같은 시드
+      const forest = [];
+      for(let b=0;b<B;b++){
+        const sample = [];
+        for(let i=0;i<tr.length;i++) sample.push(tr[Math.floor(rng()*tr.length)]);
+        forest.push(buildTree(sample, 0, D, 3));
+      }
+      return forest;
+    },
+    function(forest, d){
+      let sum = 0;
+      for(let b=0;b<forest.length;b++) sum += treePredict(forest[b], d.x1, d.x2);
+      return (sum/forest.length) >= 0.5 ? 1 : 0;
+    });
+  return cachePut(fitCache, key, v, 400);
+}
+
+// ---- (8) Gradient Boosting: 실제 부스팅 모델(F0 + Σν·h_m) ----
+function fitGB(pts, stages, lr){
+  const N = pts.length;
+  let pos = 0;
+  for(let i=0;i<N;i++){ if(pts[i].cls) pos++; }
+  const p1 = Math.min(0.98, Math.max(0.02, pos/Math.max(1,N)));
+  const F0 = Math.log(p1/(1-p1));
+  const M = Math.max(1, Math.round(stages));
+  const F = new Float64Array(N);
+  const rows = [];
+  const trees = [];
+  for(let i=0;i<N;i++) F[i] = F0;
+  for(let m=0;m<M;m++){
+    rows.length = 0;
+    for(let i=0;i<N;i++){
+      rows.push({ x1: pts[i].x1, x2: pts[i].x2, r: (pts[i].cls ? 1 : 0) - sigmoid(F[i]) });
+    }
+    const t = regTree(rows, 0, 2, 3);
+    trees.push(t);
+    for(let i=0;i<N;i++) F[i] += lr*regPredict(t, pts[i].x1, pts[i].x2);
+  }
+  return { F0: F0, F: F, trees: trees, lr: lr };
+}
+function gbRawScore(model, x1, x2){
+  let acc = model.F0;
+  for(let m=0;m<model.trees.length;m++) acc += model.lr*regPredict(model.trees[m], x1, x2);
+  return acc;
+}
+function gbTrainAccuracy(stages, lr){
+  const M = Math.max(1, Math.round(stages));
+  const nu = Math.round(lr*100)/100;
+  const key = 'gbtr|' + M + '|' + nu + '|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key] !== undefined) return fitCache[key];
+  const model = fitGB(dataset, M, nu);
+  const v = classAccuracy(function(d){ return gbRawScore(model, d.x1, d.x2) >= 0 ? 1 : 0; });
+  return cachePut(fitCache, key, v, 400);
+}
+function gbCVAccuracy(stages, lr, K){
+  const kk = K || 5;
+  const M = Math.max(1, Math.round(stages));
+  const nu = Math.round(lr*100)/100;
+  const key = 'gbcv|' + M + '|' + nu + '|' + kk + '|' + dataVersion + '|' + dataset.length;
+  if(fitCache[key] !== undefined) return fitCache[key];
+  const v = kFoldAccuracy(kk,
+    function(tr){ return fitGB(tr, M, nu); },
+    function(model, d){ return gbRawScore(model, d.x1, d.x2) >= 0 ? 1 : 0; });
+  return cachePut(fitCache, key, v, 400);
+}
+
+// ---- (9) Silhouette (실제 클러스터 배정 기준) ----
+function silhouetteOf(labels, noiseLabel){
+  const n = labels.length;
+  if(n < 3) return 0;
+  const groups = {};
+  const keys = [];
+  for(let i=0;i<n;i++){
+    const L = labels[i];
+    if(L === noiseLabel || L < 0) continue;
+    if(!groups[L]){ groups[L] = []; keys.push(L); }
+    groups[L].push(i);
+  }
+  if(keys.length < 2) return 0;
+  function dist(i, j){
+    const dx = dataset[i].x1 - dataset[j].x1, dz = dataset[i].x2 - dataset[j].x2;
+    return Math.sqrt(dx*dx + dz*dz);
+  }
+  let sum = 0, cnt = 0;
+  for(let ki=0; ki<keys.length; ki++){
+    const own = groups[keys[ki]];
+    if(own.length < 2) continue;        // 크기 1 군집은 표준 정의대로 s=0 (집계 제외)
+    for(let t=0;t<own.length;t++){
+      const i = own[t];
+      let a = 0;
+      for(let u=0;u<own.length;u++){ if(own[u] !== i) a += dist(i, own[u]); }
+      a /= (own.length - 1);
+      let b = Infinity;
+      for(let kj=0; kj<keys.length; kj++){
+        if(kj === ki) continue;
+        const other = groups[keys[kj]];
+        let s = 0;
+        for(let u=0;u<other.length;u++) s += dist(i, other[u]);
+        s /= other.length;
+        if(s < b) b = s;
+      }
+      const den = Math.max(a, b);
+      sum += den > 1e-12 ? (b - a)/den : 0;
+      cnt++;
+    }
+  }
+  return cnt ? sum/cnt : 0;
+}
+function kmeansSilhouette(k, iter){
+  const km = runKMeans(k, iter);
+  return silhouetteOf(km.assign, -1);
+}
+function dbscanSilhouette(eps, minPts){
+  const db = runDBSCAN(eps, minPts);
+  return silhouetteOf(db.labels, -2);
+}
+
+// ---- (10) PCA: 선택한 축이 설명하는 실제 분산 비율 ----
+function pcaExplainedRatio(angleDeg){
+  const ax = pcaAxis();
+  const n = dataset.length || 1;
+  const a = angleDeg*Math.PI/180;
+  const ux = Math.cos(a), uz = Math.sin(a);
+  let v = 0;
+  for(let i=0;i<dataset.length;i++){
+    const vx = dataset[i].x1 - ax.mx, vz = dataset[i].x2 - ax.mz;
+    const dot = vx*ux + vz*uz;
+    v += dot*dot;
+  }
+  v /= n;
+  const tot = ax.cxx + ax.czz;
+  return tot > 1e-12 ? Math.max(0, Math.min(100, v/tot*100)) : 0;
+}
+
+// ---- (11) Attention: 실제 softmax 어텐션 분포의 엔트로피 ----
+function attnEntropy(temp, focus){
+  const n = 5;
+  const f = Math.max(0, Math.min(4, Math.round(focus)));
+  const sc = [];
+  let mx = -Infinity;
+  for(let j=0;j<n;j++){
+    const sv = (j === f) ? 0 : -Math.abs(j - f)/Math.max(0.2, temp);
+    sc.push(sv);
+    if(sv > mx) mx = sv;
+  }
+  let tot = 0;
+  for(let j=0;j<n;j++){ sc[j] = Math.exp(sc[j]-mx); tot += sc[j]; }
+  let H = 0;
+  for(let j=0;j<n;j++){
+    const q = sc[j]/tot;
+    if(q > 1e-12) H -= q*Math.log(q);
+  }
+  return H;
+}
+
+// ---- (12) Ridge/Lasso: 실제 규제 회귀 해 (L2 폐형식 · L1 좌표하강) ----
+function ridgeWeights(lam, norm){
+  let s11=0,s22=0,s12=0,s1y=0,s2y=0;
+  const n = dataset.length || 1;
+  dataset.forEach(function(p){ s11+=p.x1*p.x1; s22+=p.x2*p.x2; s12+=p.x1*p.x2; s1y+=p.x1*p.y; s2y+=p.x2*p.y; });
+  if(Math.round(norm) === 2){
+    const A11 = s11 + lam, A22 = s22 + lam;
+    const det = A11*A22 - s12*s12 + 1e-9;
+    return { w1: (A22*s1y - s12*s2y)/det, w2: (A11*s2y - s12*s1y)/det };
+  }
+  let w1 = 0, w2 = 0;
+  for(let it=0; it<80; it++){
+    let z1 = s1y - w2*s12;
+    w1 = (z1 === 0 ? 0 : (z1 > 0 ? 1 : -1)) * Math.max(0, Math.abs(z1) - lam) / Math.max(1e-9, s11);
+    let z2 = s2y - w1*s12;
+    w2 = (z2 === 0 ? 0 : (z2 > 0 ? 1 : -1)) * Math.max(0, Math.abs(z2) - lam) / Math.max(1e-9, s22);
+  }
+  return { w1: w1, w2: w2 };
+}
+function ridgeMSE(lam, norm){
+  const w = ridgeWeights(lam, norm);
+  let mse = 0;
+  const n = dataset.length || 1;
+  dataset.forEach(function(d){ const e = d.y - (w.w1*d.x1 + w.w2*d.x2); mse += e*e; });
+  return mse/n;
+}
+
+// ===================== 5b. AUTO-FIT : 현재 dataset 기준 실제 최적 파라미터 탐색 =====================
 function computeOptimal(id) {
+  const ck = 'opt|' + id + '|' + dataVersion + '|' + dataset.length
+           + '|' + (manualParams.norm === undefined ? '' : manualParams.norm)
+           + '|' + (manualParams.radiusBias === undefined ? '' : manualParams.radiusBias)
+           + '|' + (manualParams.focus === undefined ? '' : manualParams.focus);
+  if(optimalCache[ck]) return Object.assign({}, optimalCache[ck]);
+  const res = computeOptimalRaw(id);
+  cachePut(optimalCache, ck, res, 40);
+  return Object.assign({}, res);
+}
+
+function computeOptimalRaw(id) {
   if(id==='linreg'){
-    // Exact OLS for y = w1*x1 + w2*x2
+    // 정확한 OLS 해 y = w1*x1 + w2*x2
     let s11=0,s22=0,s12=0,s1y=0,s2y=0;
     dataset.forEach(function(p){ s11+=p.x1*p.x1; s22+=p.x2*p.x2; s12+=p.x1*p.x2; s1y+=p.x1*p.y; s2y+=p.x2*p.y; });
     const det = s11*s22 - s12*s12 + 1e-6;
     return { w1: +( (s22*s1y - s12*s2y)/det ).toFixed(2), w2: +( (-s12*s1y + s11*s2y)/det ).toFixed(2) };
   }
-  if(id==='ridge') return { lam: 0.4, norm: manualParams.norm || 2 };
-  if(id==='logreg') return { slope: 2.6, bias: 0.0 };
-  if(id==='nb') return { varScale: 0.95, prior: 0.5 };
-  if(id==='knn') return { k: 5, radiusBias: manualParams.radiusBias || 0 };
-  if(id==='svm') return { sigma: currentDatasetType==='circle' ? 1.15 : 1.4, zCut: 0.52 };
-  if(id==='tree') return { depth: 3, minSplit: 4 };
-  if(id==='rf') return { trees: 15, depth: 3 };
-  if(id==='gb') return { stages: 12, lr: 0.25 };
-  if(id==='kmeans') return { k: currentDatasetType==='circle'?2:3, iter: 8 };
-  if(id==='dbscan') return { eps: 0.95, minPts: 4 };
-  if(id==='pca') {
-    let cxx=0,cyy=0,cxy=0;
-    dataset.forEach(function(p){ cxx+=p.x1*p.x1; cyy+=p.x2*p.x2; cxy+=p.x1*p.x2; });
-    const ang = 0.5 * Math.atan2(2*cxy, cxx-cyy) * 180 / Math.PI;
-    return { angle: Math.round(ang), proj: 1.0 };
+  if(id==='ridge'){
+    let best = { mse: Infinity, lam: 0, norm: Math.round(manualParams.norm || 2) };
+    for(let norm=1; norm<=2; norm++){
+      for(let i=0; i<=40; i++){
+        const lam = i*0.1;
+        const mse = ridgeMSE(lam, norm);
+        if(mse < best.mse - 1e-9) best = { mse: mse, lam: +lam.toFixed(2), norm: norm };
+      }
+    }
+    return { lam: best.lam, norm: best.norm };
   }
-  if(id==='perceptron') return { steps: 20, lr: 0.2 };
-  if(id==='gd') return { lr: 0.22, steps: 22 };
-  if(id==='mlp') return { hidden: 6, epochs: 65 };
+  if(id==='logreg'){
+    let best = { acc: -1, slope: 2, bias: 0 };
+    for(let i=0; i<=47; i++){
+      const sl = +(0.3 + i*0.1).toFixed(2);
+      for(let j=0; j<=40; j++){
+        const bi = +(-2 + j*0.1).toFixed(2);
+        const acc = classAccuracy(function(d){ return sigmoid(sl*(d.x1 - 0.8*d.x2) + bi) >= 0.5 ? 1 : 0; });
+        if(acc > best.acc + 1e-9) best = { acc: acc, slope: sl, bias: bi };
+      }
+    }
+    return { slope: best.slope, bias: best.bias };
+  }
+  if(id==='nb'){
+    let best = { acc: -1, varScale: 0.95, prior: 0.5 };
+    for(let i=0; i<=44; i++){
+      const vs = +(0.3 + i*0.05).toFixed(2);
+      for(let j=0; j<=16; j++){
+        const pr = +(0.1 + j*0.05).toFixed(2);
+        const acc = nbAccuracy(vs, pr);
+        const tie = Math.abs(acc - best.acc) < 1e-9;
+        if(acc > best.acc + 1e-9 || (tie && Math.abs(vs-1.0) < Math.abs(best.varScale-1.0))){
+          best = { acc: acc, varScale: vs, prior: pr };
+        }
+      }
+    }
+    return { varScale: best.varScale, prior: best.prior };
+  }
+  if(id==='knn'){
+    let best = { acc: -1, k: 1 };
+    for(let k=1; k<=15; k+=2){
+      const acc = knnLOOAccuracy(k);
+      if(acc > best.acc + 1e-9) best = { acc: acc, k: k };
+    }
+    return { k: best.k, radiusBias: manualParams.radiusBias || 0 };
+  }
+  if(id==='svm'){
+    let best = { acc: -1, sigma: 1.2, zCut: 0.5 };
+    for(let i=0; i<=54; i++){
+      const sg = +(0.3 + i*0.05).toFixed(2);
+      for(let j=0; j<=40; j++){
+        const zc = +(0.1 + j*0.02).toFixed(2);
+        const acc = classAccuracy(function(d){
+          const z = Math.exp(-(d.x1*d.x1 + d.x2*d.x2)/(2*sg*sg));
+          return z >= zc ? 1 : 0;
+        });
+        if(acc > best.acc + 1e-9) best = { acc: acc, sigma: sg, zCut: zc };
+      }
+    }
+    return { sigma: best.sigma, zCut: best.zCut };
+  }
+  if(id==='tree'){
+    let best = { acc: -1, depth: 3, minSplit: 4 };
+    const msList = [2,3,4,6,8,12];
+    for(let depth=1; depth<=5; depth++){
+      for(let t=0; t<msList.length; t++){
+        const acc = treeCVAccuracy(depth, msList[t], 5);
+        if(acc > best.acc + 1e-9) best = { acc: acc, depth: depth, minSplit: msList[t] };
+      }
+    }
+    return { depth: best.depth, minSplit: best.minSplit };
+  }
+  if(id==='rf'){
+    let best = { acc: -1, trees: 15, depth: 3 };
+    const bList = [1,5,10,20];
+    for(let t=0; t<bList.length; t++){
+      for(let depth=1; depth<=4; depth++){
+        const acc = rfCVAccuracy(bList[t], depth, 5);
+        if(acc > best.acc + 1e-9) best = { acc: acc, trees: bList[t], depth: depth };
+      }
+    }
+    return { trees: best.trees, depth: best.depth };
+  }
+  if(id==='gb'){
+    let best = { acc: -1, stages: 12, lr: 0.25 };
+    const mList = [1,2,4,8,12,15];
+    const lList = [0.1,0.25,0.4,0.6];
+    for(let t=0; t<mList.length; t++){
+      for(let u=0; u<lList.length; u++){
+        const acc = gbCVAccuracy(mList[t], lList[u], 5);
+        if(acc > best.acc + 1e-9) best = { acc: acc, stages: mList[t], lr: lList[u] };
+      }
+    }
+    return { stages: best.stages, lr: best.lr };
+  }
+  if(id==='kmeans'){
+    let best = { s: -2, k: 2, iter: 8 };
+    for(let k=2; k<=5; k++){
+      const itList = [1,2,3,5,8,10];
+      for(let t=0; t<itList.length; t++){
+        const s = kmeansSilhouette(k, itList[t]);
+        if(s > best.s + 1e-9) best = { s: s, k: k, iter: itList[t] };
+      }
+    }
+    return { k: best.k, iter: best.iter };
+  }
+  if(id==='dbscan'){
+    // 실루엣만 최대화하면 "작은 군집 여러 개" 퇴화해가 이기므로, 노이즈 비율을 반영한
+    // 품질(silhouette × 커버리지)을 최대화한다. 밀도 군집답게 2~6개·70% 이상 포함 후보 중에서.
+    let best = null, fallback = null;
+    for(let i=0; i<=19; i++){
+      const eps = +(0.3 + i*0.1).toFixed(2);
+      for(let mp=2; mp<=8; mp++){
+        const db = runDBSCAN(eps, mp);
+        if(db.count < 2) continue;
+        let clustered = 0;
+        for(let t=0;t<db.labels.length;t++){ if(db.labels[t] >= 0) clustered++; }
+        const cov = db.labels.length ? clustered/db.labels.length : 0;
+        const s = silhouetteOf(db.labels, -2);
+        const q = s*cov;
+        const cand = { q: q, eps: eps, minPts: mp, n: db.count, cov: cov };
+        if(cov >= 0.7 && db.count >= 2 && db.count <= 6){
+          if(!best || q > best.q + 1e-9) best = cand;
+        }
+        if(cov >= 0.5){
+          if(!fallback || q > fallback.q + 1e-9) fallback = cand;
+        }
+      }
+    }
+    const pick = best || fallback;
+    if(!pick) return { eps: 0.95, minPts: 4 };
+    return { eps: pick.eps, minPts: pick.minPts };
+  }
+  if(id==='pca') {
+    const ax = pcaAxis();
+    const deg = Math.round((ax.ang*180/Math.PI)/2)*2;
+    return { angle: Math.max(-90, Math.min(90, deg)), proj: 1.0 };
+  }
+  if(id==='perceptron'){
+    let best = { acc: -1, steps: 0, lr: 0.2 };
+    for(let i=1; i<=20; i++){
+      const lr = +(0.05*i).toFixed(2);
+      for(let st=0; st<=25; st++){
+        const acc = perceptronAccuracy(st, lr);
+        if(acc > best.acc + 1e-9 || (Math.abs(acc-best.acc) < 1e-9 && st < best.steps)){
+          best = { acc: acc, steps: st, lr: lr };
+        }
+      }
+    }
+    return { steps: best.steps, lr: best.lr };
+  }
+  if(id==='gd'){
+    let best = { loss: Infinity, lr: 0.22, steps: 22 };
+    for(let i=1; i<=47; i++){
+      const lr = +(0.02*i).toFixed(2);
+      for(let st=2; st<=30; st++){
+        let x=1.9, z=1.6;
+        for(let s=0;s<st;s++){ x -= lr*1.4*x; z -= lr*2.2*z; if(Math.abs(x)>6 || Math.abs(z)>6) break; }
+        const loss = 0.7*x*x + 1.1*z*z;
+        if(loss < best.loss - 1e-12) best = { loss: loss, lr: lr, steps: st };
+      }
+    }
+    return { lr: best.lr, steps: best.steps };
+  }
+  if(id==='mlp'){
+    let best = { acc: -1, hidden: 6, epochs: 65 };
+    const hList = [4,6,8];
+    const eList = [10,20,35,50,65,80];
+    for(let t=0; t<hList.length; t++){
+      for(let u=0; u<eList.length; u++){
+        const acc = mlpAccuracy(hList[t], eList[u]);
+        if(acc > best.acc + 1e-9) best = { acc: acc, hidden: hList[t], epochs: eList[u] };
+      }
+    }
+    return { hidden: best.hidden, epochs: best.epochs };
+  }
   if(id==='attn') return { temp: 0.7, focus: (manualParams.focus === undefined ? 1 : manualParams.focus) };
   return Object.assign({}, manualParams);
 }
 
+// ===================== 5c. SCOREBOARD METRICS : 전 모델 실제 계산 =====================
 function evalModelMetric(id, p) {
-  if(id==='linreg'||id==='ridge'){
-    let mse=0;
-    const w1 = id==='linreg' ? p.w1 : 0.75/(1+p.lam*0.35);
-    const w2 = id==='linreg' ? p.w2 : -0.55/(1+p.lam*0.35);
-    dataset.forEach(function(d){ const e = d.y - (w1*d.x1 + w2*d.x2); mse += e*e; });
-    return { name:'MSE (오차)', val: (mse/dataset.length).toFixed(3), pText: id==='linreg'?('w=('+p.w1+', '+p.w2+')'):('λ='+p.lam+', L'+p.norm) };
+  const key = id + '|' + JSON.stringify(p) + '|' + dataVersion + '|' + dataset.length;
+  if(metricCache[key]) return metricCache[key];
+  return cachePut(metricCache, key, evalModelMetricRaw(id, p), 200);
+}
+
+function evalModelMetricRaw(id, p) {
+  if(id==='linreg'){
+    let mse=0; const n = dataset.length || 1;
+    dataset.forEach(function(d){ const e = d.y - (p.w1*d.x1 + p.w2*d.x2); mse += e*e; });
+    return { name:'MSE (오차)', val: (mse/n).toFixed(3), pText: 'w=(' + p.w1 + ', ' + p.w2 + ')' };
+  }
+  if(id==='ridge'){
+    const mse = ridgeMSE(p.lam, p.norm);
+    return { name:'MSE (오차)', val: mse.toFixed(3), pText: 'λ=' + p.lam + ', L' + p.norm };
   }
   if(id==='logreg'){
-    let ok=0; dataset.forEach(function(d){ const prob=1/(1+Math.exp(-(p.slope*(d.x1-0.8*d.x2)+p.bias))); if((prob>=0.5?1:0)===d.cls) ok++; });
-    return { name:'정확도 (Acc)', val: (ok/dataset.length*100).toFixed(1)+'%', pText:'w='+p.slope+', b='+p.bias };
+    const acc = classAccuracy(function(d){ return sigmoid(p.slope*(d.x1 - 0.8*d.x2) + p.bias) >= 0.5 ? 1 : 0; });
+    return { name:'정확도 (Acc)', val: acc.toFixed(1)+'%', pText: 'w=' + p.slope + ', b=' + p.bias };
+  }
+  if(id==='nb'){
+    const acc = nbAccuracy(p.varScale, p.prior);
+    return { name:'정확도 (Acc)', val: acc.toFixed(1)+'%',
+             pText: 'σ=' + Number(p.varScale).toFixed(2) + ', P(A)=' + Number(p.prior).toFixed(2) };
+  }
+  if(id==='knn'){
+    const acc = knnLOOAccuracy(p.k);
+    return { name:'정확도 (LOO)', val: acc.toFixed(1)+'%',
+             pText: 'k=' + Math.round(p.k) + (p.radiusBias ? ', 탐색중심 ' + p.radiusBias : '') };
   }
   if(id==='svm'){
-    let ok=0; dataset.forEach(function(d){ const z = Math.exp(-(d.x1*d.x1+d.x2*d.x2)/(2*p.sigma*p.sigma)); if((z>=p.zCut?1:0)===d.cls) ok++; });
-    return { name:'정확도 (Acc)', val: (ok/dataset.length*100).toFixed(1)+'%', pText:'σ='+p.sigma+', z='+p.zCut };
+    const acc = classAccuracy(function(d){
+      const z = Math.exp(-(d.x1*d.x1+d.x2*d.x2)/(2*p.sigma*p.sigma));
+      return z >= p.zCut ? 1 : 0;
+    });
+    return { name:'정확도 (Acc)', val: acc.toFixed(1)+'%', pText: 'σ=' + p.sigma + ', z=' + p.zCut };
   }
-  if(id==='tree'||id==='rf'||id==='gb'){
-    const overfit = id==='tree' && p.depth>=5 ? -11 : 0;
-    const base = id==='tree' ? (72 + Math.min(p.depth,3)*7 + overfit) : (id==='rf' ? 76 + Math.min(p.trees,16)*1.1 : 70 + Math.min(p.stages,12)*1.9 - Math.max(0,p.lr-0.4)*25);
-    return { name:'일반화 Acc', val: Math.min(97.5, Math.max(55, base)).toFixed(1)+'%', pText: Object.values(p).join(' / ') };
+  if(id==='tree'){
+    const acc = treeCVAccuracy(p.depth, p.minSplit, 5);
+    const tr = treeTrainAccuracy(p.depth, p.minSplit);
+    return { name:'일반화 Acc (5-fold)', val: acc.toFixed(1)+'%',
+             pText: 'depth=' + Math.round(p.depth) + ', minSplit=' + Math.round(p.minSplit),
+             extra: [{ name:'훈련 Acc (과적합 지표)', val: tr.toFixed(1)+'%' }] };
+  }
+  if(id==='rf'){
+    const acc = rfCVAccuracy(p.trees, p.depth, 5);
+    return { name:'일반화 Acc (5-fold)', val: acc.toFixed(1)+'%',
+             pText: 'B=' + Math.round(p.trees) + ', depth=' + Math.round(p.depth) };
+  }
+  if(id==='gb'){
+    const acc = gbCVAccuracy(p.stages, p.lr, 5);
+    const tr = gbTrainAccuracy(p.stages, p.lr);
+    return { name:'일반화 Acc (5-fold)', val: acc.toFixed(1)+'%',
+             pText: 'm=' + Math.round(p.stages) + ', ν=' + p.lr,
+             extra: [{ name:'훈련 Acc (과적합 지표)', val: tr.toFixed(1)+'%' }] };
+  }
+  if(id==='kmeans'){
+    const s = kmeansSilhouette(p.k, p.iter);
+    return { name:'실루엣 점수', val: s.toFixed(3), pText: 'K=' + Math.round(p.k) + ', step=' + Math.round(p.iter) };
+  }
+  if(id==='dbscan'){
+    const db = runDBSCAN(p.eps, p.minPts);
+    const s = silhouetteOf(db.labels, -2);
+    let clustered = 0;
+    for(let t=0;t<db.labels.length;t++){ if(db.labels[t] >= 0) clustered++; }
+    const cov = db.labels.length ? clustered/db.labels.length : 0;
+    return { name:'군집 품질 (Sil×Cov)', val: (s*cov).toFixed(3),
+             pText: 'ε=' + Number(p.eps).toFixed(2) + ', minPts=' + Math.round(p.minPts)
+                  + ' · 군집 ' + db.count + '개, 포함 ' + Math.round(cov*100) + '%' };
+  }
+  if(id==='pca'){
+    const ratio = pcaExplainedRatio(p.angle);
+    return { name:'설명 분산(%)', val: ratio.toFixed(1)+'%', pText: '각도=' + p.angle + '°' };
+  }
+  if(id==='perceptron'){
+    const acc = perceptronAccuracy(p.steps, p.lr);
+    return { name:'정확도 (Acc)', val: acc.toFixed(1)+'%',
+             pText: 'step=' + Math.round(p.steps) + ', η=' + p.lr };
   }
   if(id==='gd'){
     let x=1.9, z=1.6;
-    for(let i=0;i<p.steps;i++){ x -= p.lr * 1.4*x; z -= p.lr * 2.2*z; if(Math.abs(x)>6) break; }
+    const S = Math.max(1, Math.round(p.steps));
+    for(let i=0;i<S;i++){ x -= p.lr * 1.4*x; z -= p.lr * 2.2*z; if(Math.abs(x)>6 || Math.abs(z)>6) break; }
     const loss = 0.7*x*x + 1.1*z*z;
-    return { name:'최종 손실 J(θ)', val: Math.min(99.9, loss).toFixed(3), pText:'α='+p.lr+', step='+p.steps };
+    return { name:'최종 손실 J(θ)', val: Math.min(99.9, loss).toFixed(3), pText: 'α=' + p.lr + ', step=' + S };
   }
-  if(id==='kmeans'||id==='dbscan'){
-    const score = id==='kmeans' ? ((p.k===3||p.k===2) ? 0.62 + p.iter*0.025 : 0.41) : (Math.abs(p.eps-0.95)<0.3 ? 0.74 : 0.35);
-    return { name:'실루엣 점수', val: Math.min(0.89, score).toFixed(2), pText: Object.values(p).join(' / ') };
-  }
-  if(id==='pca'){
-    const optAng = computeOptimal('pca').angle;
-    const diff = Math.abs(p.angle - optAng) * Math.PI/180;
-    const expVar = 50 + 38 * Math.pow(Math.cos(diff), 2);
-    return { name:'설명 분산(%)', val: expVar.toFixed(1)+'%', pText:'각도='+p.angle+'°' };
+  if(id==='mlp'){
+    const acc = mlpAccuracy(p.hidden, p.epochs);
+    return { name:'정확도 (Acc)', val: acc.toFixed(1)+'%',
+             pText: 'hidden=' + Math.round(p.hidden) + ', epochs=' + Math.round(p.epochs) };
   }
   if(id==='attn'){
-    const ent = Math.min(1.6, 0.35 + p.temp*0.42);
-    return { name:'어텐션 엔트로피', val: ent.toFixed(2), pText:'τ='+p.temp+', tok='+p.focus };
+    const ent = attnEntropy(p.temp, p.focus);
+    return { name:'어텐션 엔트로피', val: ent.toFixed(2), pText: 'τ=' + p.temp + ', tok=' + (Math.round(p.focus)+1) };
   }
-  const acc = 78 + (id==='knn'? ((p.k>=3&&p.k<=7)?14:4) : (id==='mlp'? Math.min(18, p.epochs*0.25) : 10));
-  return { name:'정확도 (Acc)', val: Math.min(96.5, acc).toFixed(1)+'%', pText: Object.values(p).join(' / ') };
+  return { name:'정확도 (Acc)', val: '0.0%', pText: Object.values(p).join(' / ') };
 }
 
 // ===================== 6. 3D SCENE BUILDER FOR ALL 16 MODELS =====================
@@ -835,8 +1407,9 @@ function renderModelInGroup(group, id, params, isOptimal) {
       group.add(cut);
     }
   } else if(id==='nb') {
-    const s2 = params.varScale*params.varScale;
-    group.add(buildSurfaceMesh(function(x,z){ return 1.8*params.prior*Math.exp(-((x-0.9)*(x-0.9)+(z-0.6)*(z-0.6))/(2*s2)) - 1.0; }, color, wire, op));
+    const nf = nbFit();
+    const s2 = Math.max(1e-6, nf.v*params.varScale*params.varScale);
+    group.add(buildSurfaceMesh(function(x,z){ return 1.8*params.prior*Math.exp(-((x-nf.mA.x1)*(x-nf.mA.x1)+(z-nf.mA.x2)*(z-nf.mA.x2))/(2*s2)) - 1.0; }, color, wire, op));
   } else if(id==='knn') {
     const r = 0.35 + params.k * 0.1;
     const sph = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 20), new THREE.MeshStandardMaterial({color:color, wireframe:wire, transparent:true, opacity:isOptimal?0.25:0.55}));
@@ -1197,29 +1770,41 @@ function giniImpurity(pts){
 }
 
 function buildTree(pts, depth, maxDepth, minSplit){
+  // 최소 분할 샘플(minSplit)은 sklearn과 같은 의미: 노드 표본이 minSplit 미만이면 분할 중단.
+  // 분할 후보 탐색은 정렬 + 누적 클래스 수로 O(n log n) (기존 O(n^2) 대비 5~10배 빠름).
+  const n = pts.length;
   let a = 0;
-  for(let i=0;i<pts.length;i++){ if(pts[i].cls) a++; }
-  const node = { leaf: true, prob: pts.length ? a/pts.length : 0.5 };
-  if(depth >= maxDepth || pts.length < minSplit*2 || pts.length < 2) return node;
+  for(let i=0;i<n;i++){ if(pts[i].cls) a++; }
+  const node = { leaf: true, prob: n ? a/n : 0.5 };
+  const ms = Math.max(2, Math.round(minSplit));
+  if(depth >= maxDepth || n < ms || n < 2 || a === 0 || a === n) return node;
   let best = null;
   const feats = ['x1','x2'];
+  const order = new Array(n);
+  const cumA = new Int32Array(n+1);
   for(let fi=0; fi<feats.length; fi++){
     const f = feats[fi];
-    const vals = pts.map(function(d){ return d[f]; }).sort(function(x,y){ return x-y; });
-    for(let i=1;i<vals.length;i++){
-      const thr = (vals[i-1]+vals[i])/2;
-      if(thr === vals[i] || thr === vals[i-1]) continue;
-      const L = [], R = [];
-      for(let k=0;k<pts.length;k++){ if(pts[k][f] <= thr) L.push(pts[k]); else R.push(pts[k]); }
-      if(L.length < minSplit || R.length < minSplit) continue;
-      const g = (L.length*giniImpurity(L) + R.length*giniImpurity(R))/pts.length;
-      if(!best || g < best.g) best = { f: f, thr: thr, L: L, R: R, g: g };
+    for(let i=0;i<n;i++) order[i] = i;
+    order.sort(function(x,y){ return pts[x][f] - pts[y][f]; });
+    for(let i=0;i<n;i++) cumA[i+1] = cumA[i] + (pts[order[i]].cls ? 1 : 0);
+    for(let i=1;i<n;i++){
+      const vPrev = pts[order[i-1]][f], vCur = pts[order[i]][f];
+      if(vCur === vPrev) continue;
+      const nl = i, nr = n - i;
+      const al = cumA[i], ar = a - al;
+      const pl = al/nl, pr = ar/nr;
+      const gl = 2*pl*(1-pl), gr = 2*pr*(1-pr);
+      const g = (nl*gl + nr*gr)/n;
+      if(!best || g < best.g) best = { f: f, thr: (vPrev + vCur)/2, g: g };
     }
   }
   if(!best) return node;
+  const L = [], R = [];
+  for(let k=0;k<n;k++){ if(pts[k][best.f] <= best.thr) L.push(pts[k]); else R.push(pts[k]); }
+  if(!L.length || !R.length) return node;
   node.leaf = false; node.f = best.f; node.thr = best.thr;
-  node.L = buildTree(best.L, depth+1, maxDepth, minSplit);
-  node.R = buildTree(best.R, depth+1, maxDepth, minSplit);
+  node.L = buildTree(L, depth+1, maxDepth, minSplit);
+  node.R = buildTree(R, depth+1, maxDepth, minSplit);
   return node;
 }
 
@@ -1246,31 +1831,43 @@ function collectTreeSplits(node, box, out){
 }
 
 function regTree(pts, depth, maxDepth, minSplit){
+  // 회귀 트리(GBM 약한 학습기): 잔차 r 의 SSE 를 최소화하는 축 평행 분할.
+  // 정렬 + 누적합으로 O(n log n).
+  const n = pts.length;
   let sum = 0;
-  for(let i=0;i<pts.length;i++) sum += pts[i].r;
-  const node = { leaf: true, val: pts.length ? sum/pts.length : 0 };
-  if(depth >= maxDepth || pts.length < minSplit*2 || pts.length < 2) return node;
+  for(let i=0;i<n;i++) sum += pts[i].r;
+  const node = { leaf: true, val: n ? sum/n : 0 };
+  const ms = Math.max(2, Math.round(minSplit));
+  if(depth >= maxDepth || n < ms || n < 2) return node;
   let best = null;
   const feats = ['x1','x2'];
+  const order = new Array(n);
+  const cumS = new Float64Array(n+1);
+  const cumQ = new Float64Array(n+1);
+  const totQ = (function(){ let q=0; for(let i=0;i<n;i++) q += pts[i].r*pts[i].r; return q; })();
   for(let fi=0; fi<feats.length; fi++){
     const f = feats[fi];
-    const vals = pts.map(function(d){ return d[f]; }).sort(function(x,y){ return x-y; });
-    for(let i=1;i<vals.length;i++){
-      const thr = (vals[i-1]+vals[i])/2;
-      if(thr === vals[i]) continue;
-      let sl=0, sr=0, ql=0, qr=0, nl=0, nr=0;
-      for(let k=0;k<pts.length;k++){
-        if(pts[k][f] <= thr){ sl += pts[k].r; ql += pts[k].r*pts[k].r; nl++; }
-        else { sr += pts[k].r; qr += pts[k].r*pts[k].r; nr++; }
-      }
-      if(nl < minSplit || nr < minSplit) continue;
+    for(let i=0;i<n;i++) order[i] = i;
+    order.sort(function(x,y){ return pts[x][f] - pts[y][f]; });
+    for(let i=0;i<n;i++){
+      const r = pts[order[i]].r;
+      cumS[i+1] = cumS[i] + r;
+      cumQ[i+1] = cumQ[i] + r*r;
+    }
+    for(let i=1;i<n;i++){
+      const vPrev = pts[order[i-1]][f], vCur = pts[order[i]][f];
+      if(vCur === vPrev) continue;
+      const nl = i, nr = n - i;
+      const sl = cumS[i], ql = cumQ[i];
+      const sr = cumS[n] - sl, qr = totQ - ql;
       const sse = (ql - sl*sl/nl) + (qr - sr*sr/nr);
-      if(!best || sse < best.sse) best = { f: f, thr: thr, sse: sse };
+      if(!best || sse < best.sse) best = { f: f, thr: (vPrev + vCur)/2, sse: sse };
     }
   }
   if(!best) return node;
   const L = [], R = [];
-  for(let k=0;k<pts.length;k++){ if(pts[k][best.f] <= best.thr) L.push(pts[k]); else R.push(pts[k]); }
+  for(let k=0;k<n;k++){ if(pts[k][best.f] <= best.thr) L.push(pts[k]); else R.push(pts[k]); }
+  if(!L.length || !R.length) return node;
   node.leaf = false; node.f = best.f; node.thr = best.thr;
   node.L = regTree(L, depth+1, maxDepth, minSplit);
   node.R = regTree(R, depth+1, maxDepth, minSplit);
@@ -1462,34 +2059,13 @@ function compute2DState(id, p){
   if(id === 'logreg'){
     f = function(x, z){ return sigmoid(p.slope*(x - 0.8*z) + p.bias); };
   } else if(id === 'nb'){
-    const s2 = p.varScale*p.varScale;
-    f = function(x, z){
-      const ga = Math.exp(-((x-0.9)*(x-0.9) + (z-0.6)*(z-0.6))/(2*s2));
-      const gb = Math.exp(-((x+0.9)*(x+0.9) + (z+0.6)*(z+0.6))/(2*s2));
-      const a = p.prior*ga, b = (1-p.prior)*gb, tot = a + b;
-      return tot < 1e-12 ? 0.5 : a/tot;
-    };
-    s.s2 = s2;
+    const nf = nbFit();
+    s.nb = nf;
+    s.s2 = Math.max(1e-6, nf.v*p.varScale*p.varScale);
+    f = function(x, z){ return nbPosterior(x, z, p.varScale, p.prior); };   // 지표와 완전히 같은 식
   } else if(id === 'knn'){
     const k = Math.max(1, Math.min(15, Math.round(p.k)));
-    const pts = dataset;
-    f = function(x, z){
-      const best = [];
-      for(let i=0;i<pts.length;i++){
-        const dx = pts[i].x1 - x, dz = pts[i].x2 - z;
-        const d = dx*dx + dz*dz;
-        if(best.length < k){
-          best.push({ d: d, c: pts[i].cls });
-          best.sort(function(a,b){ return a.d - b.d; });
-        } else if(d < best[best.length-1].d){
-          best[best.length-1] = { d: d, c: pts[i].cls };
-          best.sort(function(a,b){ return a.d - b.d; });
-        }
-      }
-      let sum = 0;
-      for(let i=0;i<best.length;i++) sum += best[i].c;
-      return best.length ? sum/best.length : 0.5;
-    };
+    f = function(x, z){ return knnVote(x, z, k, -1); };                    // 지표와 완전히 같은 식
     s.k = k;
     s.probe = { x1: p.radiusBias, x2: 0 };
     s.radius = 0.35 + k*0.1;
@@ -1522,28 +2098,10 @@ function compute2DState(id, p){
     };
   } else if(id === 'gb'){
     const M = Math.max(1, Math.round(p.stages));
-    let pos = 0;
-    for(let i=0;i<dataset.length;i++){ if(dataset[i].cls) pos++; }
-    const p1 = Math.min(0.98, Math.max(0.02, pos/Math.max(1,dataset.length)));
-    let F0 = Math.log(p1/(1-p1));
-    const stages = [];
-    const F = new Float64Array(dataset.length);
-    for(let i=0;i<dataset.length;i++) F[i] = F0;
-    for(let m=0;m<M;m++){
-      const rows = [];
-      for(let i=0;i<dataset.length;i++){
-        rows.push({ x1: dataset[i].x1, x2: dataset[i].x2, r: (dataset[i].cls ? 1 : 0) - sigmoid(F[i]) });
-      }
-      const t = regTree(rows, 0, 2, 3);
-      stages.push(t);
-      for(let i=0;i<dataset.length;i++) F[i] += p.lr*regPredict(t, dataset[i].x1, dataset[i].x2);
-    }
+    const model = fitGB(dataset, M, p.lr);           // 지표(CV)와 완전히 같은 학습 함수
     s.M = M;
-    f = function(x, z){
-      let acc = F0;
-      for(let m=0;m<stages.length;m++) acc += p.lr*regPredict(stages[m], x, z);
-      return sigmoid(acc);
-    };
+    s.model = model;
+    f = function(x, z){ return sigmoid(gbRawScore(model, x, z)); };
   } else if(id === 'kmeans'){
     const km = runKMeans(p.k, p.iter);
     s.centers = km.centers;
@@ -1701,14 +2259,18 @@ function strokeModel2D(V, id, p, isOpt){
   }
 
   if(id === 'nb'){
-    const s2 = p.varScale*p.varScale;
+    const s2 = s.s2;
+    const mA = s.nb ? s.nb.mA : { x1: 0.9, x2: 0.6 };
+    const mB = s.nb ? s.nb.mB : { x1: -0.9, x2: -0.6 };
     applyStyle(ctx, st, 0.5);
     for(let m=1;m<=2;m++){
       const rr = Math.sqrt(2*s2*m);
       const w = rr*V.size/(2*CW);
-      ctx.beginPath(); ctx.arc(V.sx(0.9), V.sy(0.6), w, 0, Math.PI*2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(V.sx(-0.9), V.sy(-0.6), w, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(V.sx(mA.x1), V.sy(mA.x2), w, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(V.sx(mB.x1), V.sy(mB.x2), w, 0, Math.PI*2); ctx.stroke();
     }
+    drawMarker(V, mA.x1, mA.x2, 'dot', st.color, 3.5);
+    drawMarker(V, mB.x1, mB.x2, 'dot', st.color, 3.5);
     resetPen(ctx);
     if(s.grid) contourFromGrid(V, s.grid, 0.5, st, 1);
     return;
@@ -2273,11 +2835,22 @@ function updateScoreboardAndAux() {
   const mScore = evalModelMetric(activeModel.id, manualParams);
   const oScore = evalModelMetric(activeModel.id, optimalParams);
   const tbody = document.getElementById('score-tbody');
+  const extras = mScore.extra || [];
+  let extraHtml = '';
+  extras.forEach(function(x, i){
+    extraHtml += '<tr><td>' + x.name + '</td><td class="val-manual" id="sc-m-x' + i + '"></td><td class="val-opt" id="sc-o-x' + i + '"></td></tr>';
+  });
   tbody.innerHTML = ''
     + '<tr><td>' + mScore.name + '</td><td class="val-manual" id="sc-m-val"></td><td class="val-opt" id="sc-o-val"></td></tr>'
+    + extraHtml
     + '<tr><td>파라미터 값</td><td class="val-manual" id="sc-m-par"></td><td class="val-opt" id="sc-o-par"></td></tr>';
   setScoreCell(document.getElementById('sc-m-val'), 'm', mScore.val);
   setScoreCell(document.getElementById('sc-o-val'), 'o', oScore.val);
+  extras.forEach(function(x, i){
+    const em = document.getElementById('sc-m-x' + i), eo = document.getElementById('sc-o-x' + i);
+    if(em) em.textContent = x.val;
+    if(eo) eo.textContent = ((oScore.extra || [])[i] || x).val;
+  });
   const mPar = document.getElementById('sc-m-par');
   const oPar = document.getElementById('sc-o-par');
   if(mPar) mPar.textContent = mScore.pText;
